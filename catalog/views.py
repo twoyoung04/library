@@ -12,6 +12,7 @@ from django.db import transaction
 from django.db.models import Count, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from .forms import CategoryForm, CopyForm, EditionForm
@@ -32,6 +33,28 @@ def _descendant_ids(category_id):
         pending = [pk for pk in children if pk not in ids]
         ids.update(pending)
     return ids
+
+
+def _book_metadata(isbn):
+    provider_config = os.environ.get('SHOWAPI_APP_KEY', '') + '|' + os.environ.get('JUHE_ISBN_KEY', '')
+    provider_version = hashlib.sha256(provider_config.encode()).hexdigest()[:12]
+    key = f'book-lookup:v4:{provider_version}:{isbn}'
+    result = cache.get(key)
+    if result is None:
+        result = lookup_book(isbn) or {}
+        cache.set(key, result, 24 * 60 * 60 if result else 60 * 60)
+    return result
+
+
+def _edition_fields(metadata):
+    year = metadata.get('published_year')
+    return {
+        'title': str(metadata.get('title') or '').strip()[:300],
+        'author': str(metadata.get('author') or '').strip()[:300],
+        'publisher': str(metadata.get('publisher') or '').strip()[:200],
+        'published_year': year if isinstance(year, int) and 1000 <= year <= 2100 else None,
+        'cover_url': str(metadata.get('cover_url') or '').strip()[:1000],
+    }
 
 
 @login_required
@@ -77,6 +100,16 @@ def book_new(request):
                 existing = Edition.objects.filter(isbn=isbn).first() if isbn else None
                 if existing:
                     edition = existing
+                    if not edition.title:
+                        fields = ('title', 'author', 'publisher', 'published_year', 'cover_url')
+                        updates = []
+                        for field in fields:
+                            value = edition_form.cleaned_data[field]
+                            if value and not getattr(edition, field):
+                                setattr(edition, field, value)
+                                updates.append(field)
+                        if updates:
+                            edition.save(update_fields=updates + ['updated_at'])
                     messages.info(request, '这个 ISBN 已存在，已为它新增一册。')
                 else:
                     edition = edition_form.save()
@@ -182,19 +215,57 @@ def lookup_isbn(request):
         return JsonResponse({'error': str(exc)}, status=400)
     existing = Edition.objects.filter(isbn=isbn).annotate(copy_count=Count('copies')).first()
     if existing:
+        found = _edition_fields(_book_metadata(isbn)) if not existing.title else {}
         return JsonResponse({'existing': True, 'edition_id': existing.pk,
-                             'copy_count': existing.copy_count, 'title': existing.title,
-                             'author': existing.author, 'publisher': existing.publisher,
-                             'published_year': existing.published_year,
-                             'cover_url': existing.cover_url, 'isbn': isbn})
-    provider_config = os.environ.get('SHOWAPI_APP_KEY', '') + '|' + os.environ.get('JUHE_ISBN_KEY', '')
-    provider_version = hashlib.sha256(provider_config.encode()).hexdigest()[:12]
-    key = f'book-lookup:v4:{provider_version}:{isbn}'
-    result = cache.get(key)
-    if result is None:
-        result = lookup_book(isbn) or {}
-        cache.set(key, result, 24 * 60 * 60 if result else 60 * 60)
+                             'copy_count': existing.copy_count, 'title': existing.title or found.get('title', ''),
+                             'author': existing.author or found.get('author', ''),
+                             'publisher': existing.publisher or found.get('publisher', ''),
+                             'published_year': existing.published_year or found.get('published_year'),
+                             'cover_url': existing.cover_url or found.get('cover_url', ''), 'isbn': isbn})
+    result = _book_metadata(isbn)
     return JsonResponse({'existing': False, 'isbn': isbn, **result})
+
+
+@login_required
+@require_POST
+def scan_save(request):
+    try:
+        isbn = normalize_isbn(request.POST.get('isbn', ''))
+    except ValueError as exc:
+        return JsonResponse({'error': str(exc)}, status=400)
+    copy_form = CopyForm(request.POST)
+    if not copy_form.is_valid():
+        return JsonResponse({'error': '请检查这册书的位置、状态或日期。',
+                             'fields': copy_form.errors.get_json_data()}, status=400)
+
+    existing = Edition.objects.filter(isbn=isbn).first()
+    metadata = _book_metadata(isbn) if not existing or not existing.title else {}
+    fields = _edition_fields(metadata)
+    with transaction.atomic():
+        edition, created = Edition.objects.get_or_create(isbn=isbn, defaults=fields)
+        if not created and not edition.title and fields['title']:
+            updates = []
+            for field, value in fields.items():
+                if value and not getattr(edition, field):
+                    setattr(edition, field, value)
+                    updates.append(field)
+            if updates:
+                edition.save(update_fields=updates + ['updated_at'])
+        copy = copy_form.save(commit=False)
+        copy.edition = edition
+        copy.save()
+        copy_count = edition.copies.count()
+
+    return JsonResponse({
+        'saved': True, 'isbn': isbn, 'title': edition.title,
+        'author': edition.author, 'publisher': edition.publisher,
+        'published_year': edition.published_year, 'cover_url': edition.cover_url,
+        'source': metadata.get('source') or '', 'copy_count': copy_count,
+        'edition_id': edition.pk, 'copy_id': copy.pk,
+        'needs_details': not bool(edition.title),
+        'detail_url': reverse('book_detail', args=[edition.pk]),
+        'edit_url': reverse('book_edit', args=[edition.pk]),
+    })
 
 
 CSV_FIELDS = ['ISBN', '书名', '作者', '出版社', '出版年', '封面链接',
@@ -248,13 +319,13 @@ def import_csv(request):
 
 def _import_row(row, number):
     title = (row.get('书名') or '').strip()
-    if not title:
-        raise ValueError(f'第 {number} 行缺少书名。')
     raw_isbn = (row.get('ISBN') or '').strip()
     try:
         isbn = normalize_isbn(raw_isbn) if raw_isbn else None
     except ValueError as exc:
         raise ValueError(f'第 {number} 行 ISBN 无效。') from exc
+    if not title and not isbn:
+        raise ValueError(f'第 {number} 行需要书名或 ISBN。')
     year_raw = (row.get('出版年') or '').strip()
     if year_raw and (not year_raw.isdigit() or not 1000 <= int(year_raw) <= 2100):
         raise ValueError(f'第 {number} 行出版年无效。')

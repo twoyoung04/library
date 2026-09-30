@@ -29,7 +29,7 @@ class Tag(models.Model):
 
 class Edition(models.Model):
     isbn = models.CharField('ISBN', max_length=13, unique=True, null=True, blank=True)
-    title = models.CharField('书名', max_length=300)
+    title = models.CharField('书名', max_length=300, blank=True)
     author = models.CharField('作者', max_length=300, blank=True)
     publisher = models.CharField('出版社', max_length=200, blank=True)
     published_year = models.PositiveSmallIntegerField('出版年', null=True, blank=True)
@@ -46,7 +46,7 @@ class Edition(models.Model):
         verbose_name_plural = '图书版本'
 
     def __str__(self):
-        return self.title
+        return self.title or self.isbn or '未命名图书'
 
 
 class Copy(models.Model):
@@ -71,4 +71,4 @@ class Copy(models.Model):
         verbose_name_plural = '馆藏副本'
 
     def __str__(self):
-        return f'{self.edition.title} #{self.pk}'
+        return f'{self.edition} #{self.pk}'

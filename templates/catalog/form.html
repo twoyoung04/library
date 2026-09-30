@@ -3,7 +3,20 @@
 {% block content %}
 <header class="page-header compact"><div><p class="eyebrow">{% if mode == 'new' %}ADD TO COLLECTION{% else %}EDIT BOOK{% endif %}</p><h1>{{ heading }}</h1><p class="subhead">{% if mode == 'new' %}扫描 ISBN，或自己填写图书信息。{% else %}修改这本书的共用版本信息。{% endif %}</p></div></header>
 <div class="form-layout"><div class="form-main">
-{% if mode == 'new' %}<section class="scan-card"><div class="scan-head"><div class="scan-icon">⌗</div><div><h2>用 ISBN 快速录入</h2><p>对准书背条码，也可以拍照上传。</p></div></div><div class="scan-actions"><button type="button" class="button primary" id="camera-button">打开摄像头</button><label class="button secondary upload-button">拍照 / 上传图片<input id="photo-input" type="file" accept="image/*" capture="environment"></label></div><video id="camera-preview" autoplay muted playsinline hidden></video><div id="scan-status" class="scan-status" role="status">识别条码后，将自动查询图书资料。</div></section>{% endif %}
+{% if mode == 'new' %}
+<section class="scan-card" id="scan-card" data-save-url="{% url 'scan_save' %}">
+  <div class="scan-head"><div class="scan-icon">⌗</div><div><h2>用 ISBN 快速录入</h2><p>对准书背条码，也可以拍照上传。</p></div></div>
+  <div class="scan-options">
+    <label><input type="checkbox" id="auto-save"><span>扫描结果自动保存到书库<small>查不到书目信息时，也会保存 ISBN，稍后可补充书名。</small></span></label>
+    <label><input type="checkbox" id="continuous-scan" disabled><span>连续扫描<small>需先开启自动保存；移开条码后可再次扫描同一本书。</small></span></label>
+  </div>
+  <div class="scan-actions"><button type="button" class="button primary" id="camera-button">打开摄像头</button><label class="button secondary upload-button">拍照 / 上传图片<input id="photo-input" type="file" accept="image/*" capture="environment"></label></div>
+  <video id="camera-preview" autoplay muted playsinline hidden></video>
+  <div id="scan-status" class="scan-status" role="status">识别条码后，将自动查询图书资料。</div>
+  <div id="scan-feedback" class="scan-feedback" hidden><strong id="scan-feedback-heading"></strong><span id="scan-feedback-text"></span></div>
+  <ol id="scan-history" class="scan-history" aria-label="本次自动保存记录" hidden></ol>
+</section>
+{% endif %}
 <form method="post" class="editor-form" id="book-form">{% csrf_token %}
 <section class="form-section"><div class="section-number">01</div><div class="section-body"><h2>图书信息</h2><p class="section-note">相同 ISBN 的实体书会共用这些资料。</p>
 {% if edition_form.non_field_errors %}<div class="form-error">{{ edition_form.non_field_errors }}</div>{% endif %}

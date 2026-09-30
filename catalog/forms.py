@@ -7,6 +7,7 @@ from .models import Category, Copy, Edition
 
 
 class EditionForm(forms.ModelForm):
+    title = forms.CharField(label='书名', max_length=300)
     tags_text = forms.CharField(label='标签', required=False,
                                 help_text='多个标签用逗号隔开', max_length=400)
 

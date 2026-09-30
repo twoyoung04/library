@@ -68,6 +68,110 @@ class LibraryFlowTests(TestCase):
         self.assertEqual(Copy.objects.count(), 2)
         self.assertEqual(Edition.objects.get().title, 'First title')
 
+    @patch('catalog.views._book_metadata', return_value={
+        'title': '培根随笔全集', 'author': '弗朗西斯·培根',
+        'publisher': '商务印书馆', 'published_year': 2021,
+        'cover_url': 'https://example.com/cover.jpg', 'source': 'NeoDB',
+    })
+    def test_scan_auto_save_creates_edition_and_copy(self, metadata):
+        response = self.client.post(reverse('scan_save'), {
+            'isbn': '9787100202169', 'status': 'read', 'location': '书架 A',
+            'acquired_on': '2026-09-30',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['title'], '培根随笔全集')
+        self.assertFalse(response.json()['needs_details'])
+        self.assertEqual(Edition.objects.get().publisher, '商务印书馆')
+        copy = Copy.objects.get()
+        self.assertEqual(copy.location, '书架 A')
+        self.assertEqual(copy.status, Copy.Status.READ)
+        metadata.assert_called_once_with('9787100202169')
+
+    @patch('catalog.views._book_metadata', return_value={})
+    def test_scan_auto_save_preserves_isbn_without_metadata(self, metadata):
+        response = self.client.post(reverse('scan_save'), {
+            'isbn': '9787100202169', 'status': 'unread',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['needs_details'])
+        edition = Edition.objects.get()
+        self.assertEqual(edition.title, '')
+        self.assertEqual(edition.isbn, '9787100202169')
+        self.assertContains(self.client.get(reverse('book_list')), '待补充书名')
+        self.assertContains(self.client.get(reverse('book_detail', args=[edition.pk])), '9787100202169')
+
+        csv_data = self.client.get(reverse('export_csv')).content
+        Copy.objects.all().delete()
+        Edition.objects.all().delete()
+        imported = self.client.post(reverse('import_csv'), {
+            'file': SimpleUploadedFile('books.csv', csv_data, content_type='text/csv')
+        })
+        self.assertEqual(imported.status_code, 302)
+        self.assertEqual(Edition.objects.get(isbn='9787100202169').title, '')
+        metadata.assert_called_once()
+
+    @patch('catalog.views._book_metadata')
+    def test_scan_existing_isbn_adds_copy_without_overwriting(self, metadata):
+        Edition.objects.create(isbn='9787100202169', title='已有书名', author='已有作者')
+        first = self.client.post(reverse('scan_save'), {'isbn': '9787100202169', 'status': 'unread'})
+        second = self.client.post(reverse('scan_save'), {'isbn': '9787100202169', 'status': 'unread'})
+        self.assertEqual(first.json()['copy_count'], 1)
+        self.assertEqual(second.json()['copy_count'], 2)
+        self.assertEqual(Edition.objects.count(), 1)
+        self.assertEqual(Copy.objects.count(), 2)
+        self.assertEqual(Edition.objects.get().author, '已有作者')
+        metadata.assert_not_called()
+
+    @patch('catalog.views._book_metadata', return_value={'title': '补全书名', 'author': '作者'})
+    def test_scan_enriches_existing_isbn_only_record(self, metadata):
+        Edition.objects.create(isbn='9787100202169', title='')
+        response = self.client.post(reverse('scan_save'), {'isbn': '9787100202169', 'status': 'unread'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Edition.objects.get().title, '补全书名')
+        self.assertEqual(Copy.objects.count(), 1)
+        metadata.assert_called_once()
+
+    @patch('catalog.views._book_metadata')
+    def test_scan_save_rejects_invalid_isbn_and_copy_fields(self, metadata):
+        self.assertEqual(self.client.get(reverse('scan_save')).status_code, 405)
+        self.assertEqual(self.client.post(reverse('scan_save'), {
+            'isbn': 'invalid', 'status': 'unread',
+        }).status_code, 400)
+        self.assertEqual(self.client.post(reverse('scan_save'), {
+            'isbn': '9787100202169', 'status': 'invalid',
+        }).status_code, 400)
+        self.assertEqual(Edition.objects.count(), 0)
+        self.assertEqual(Copy.objects.count(), 0)
+        metadata.assert_not_called()
+
+    def test_scan_save_requires_login_and_csrf(self):
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        self.assertEqual(client.post(reverse('scan_save'), {
+            'isbn': '9787100202169', 'status': 'unread',
+        }).status_code, 403)
+        page = client.get(reverse('book_new'))
+        self.assertContains(page, 'id="auto-save"')
+        self.assertContains(page, 'id="continuous-scan"')
+        with patch('catalog.views._book_metadata', return_value={}):
+            self.assertEqual(client.post(reverse('scan_save'), {
+                'isbn': '9787100202169', 'status': 'unread',
+                'csrfmiddlewaretoken': client.cookies['csrftoken'].value,
+            }).status_code, 200)
+        anonymous = Client()
+        self.assertEqual(anonymous.post(reverse('scan_save'), {
+            'isbn': '9787100202169', 'status': 'unread',
+        }).status_code, 302)
+
+    def test_manual_entry_completes_isbn_only_record(self):
+        Edition.objects.create(isbn='9787100202169', title='')
+        response = self.client.post(reverse('book_new'), {
+            'isbn': '9787100202169', 'title': '培根随笔全集', 'status': 'unread',
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Edition.objects.get().title, '培根随笔全集')
+        self.assertEqual(Copy.objects.count(), 1)
+
     def test_export_import_preserves_two_copies(self):
         book = Edition.objects.create(isbn='9780140328721', title='A book', author='An author')
         Copy.objects.create(edition=book, location='A1')

@@ -12,6 +12,7 @@ urlpatterns = [
     path('categories/', views.categories, name='categories'),
     path('categories/<int:pk>/delete/', views.category_delete, name='category_delete'),
     path('api/lookup/', views.lookup_isbn, name='lookup_isbn'),
+    path('api/scan-save/', views.scan_save, name='scan_save'),
     path('export/', views.export_csv, name='export_csv'),
     path('import/', views.import_csv, name='import_csv'),
 ]
