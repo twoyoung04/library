@@ -26,6 +26,7 @@ let audioContext = null;
 let lastAcceptedIsbn = null;
 let lastSeenAt = 0;
 let savedCount = 0;
+let active = true;
 
 function message(text, kind = '') {
   statusEl.textContent = text;
@@ -120,6 +121,7 @@ async function lookup(raw) {
   try {
     const response = await fetch(`/api/lookup/?isbn=${encodeURIComponent(isbn)}`);
     const data = await response.json();
+    if (!active) return;
     if (!response.ok) throw new Error(data.error || '查询失败');
     for (const name of ['title', 'author', 'publisher', 'published_year', 'cover_url']) {
       const field = document.getElementById(`id_${name}`);
@@ -157,6 +159,7 @@ async function saveScan(isbn) {
       throw new Error('登录已过期，请刷新页面重新登录');
     }
     const data = await response.json();
+    if (!active) return;
     if (!response.ok) throw new Error(data.error || '保存失败');
     isbnField.value = data.isbn;
     for (const name of ['title', 'author', 'publisher', 'published_year', 'cover_url']) {
@@ -177,6 +180,7 @@ async function saveScan(isbn) {
 }
 
 async function scannedIsbn(isbn) {
+  if (!active) return;
   isbnField.value = isbn;
   scanTone();
   try { navigator.vibrate?.(45); } catch (_) { /* Optional haptic feedback. */ }
@@ -252,6 +256,7 @@ cameraButton.addEventListener('click', async () => {
       : '请将书背条码放入画面中…');
     preview.hidden = false;
     const controls = await reader.decodeFromStream(stream, preview, (result, error, controls) => {
+      if (!active) return;
       if (!result) {
         if (!busy && lastAcceptedIsbn && Date.now() - lastSeenAt > 2500) lastAcceptedIsbn = null;
         return;
@@ -319,6 +324,7 @@ photoInput.addEventListener('change', async () => {
       message('未找到条码，正在识别印刷的 ISBN 数字…');
       isbn = await ocrIsbn(file);
     }
+    if (!active) return;
     if (isbn) await scannedIsbn(isbn);
     else message('没有识别到有效 ISBN。请拍清楚条码或数字，也可以手动输入。', 'error');
   } catch (error) {
@@ -333,5 +339,15 @@ photoInput.addEventListener('change', async () => {
 photoInput.addEventListener('click', unlockAudio);
 
 document.getElementById('lookup-button').addEventListener('click', () => lookup(isbnField.value));
-window.addEventListener('pagehide', stopCamera);
+function cleanupScanner() {
+  active = false;
+  stopCamera();
+  document.removeEventListener('turbo:before-cache', cleanupScanner);
+  document.removeEventListener('turbo:before-render', cleanupScanner);
+  window.removeEventListener('pagehide', cleanupScanner);
+}
+
+document.addEventListener('turbo:before-cache', cleanupScanner);
+document.addEventListener('turbo:before-render', cleanupScanner);
+window.addEventListener('pagehide', cleanupScanner);
 if (isbnField.value) lookup(isbnField.value);

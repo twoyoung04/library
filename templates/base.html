@@ -5,8 +5,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#18312a">
+  <meta name="turbo-prefetch" content="false">
   <title>{% block title %}我的藏书{% endblock %} · 我的藏书</title>
-  <link rel="stylesheet" href="{% static 'catalog/style.css' %}">
+  <link rel="stylesheet" href="{% static 'catalog/style.css' %}" data-turbo-track="reload">
+  <script src="{% static 'catalog/navigation.bundle.js' %}" defer data-turbo-track="reload"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -19,7 +21,7 @@
         <a href="{% url 'categories' %}" class="{% if request.resolver_match.url_name == 'categories' %}active{% endif %}">▦ <span>分类管理</span></a>
         <a href="{% url 'import_csv' %}" class="{% if request.resolver_match.url_name == 'import_csv' %}active{% endif %}">↥ <span>导入数据</span></a>
       </nav>
-      <div class="sidebar-bottom"><span>为每一本书留个位置。</span><form action="{% url 'logout' %}" method="post">{% csrf_token %}<button type="submit" class="text-button">退出登录 ↗</button></form></div>
+      <div class="sidebar-bottom"><span>为每一本书留个位置。</span><form action="{% url 'logout' %}" method="post" data-turbo="false">{% csrf_token %}<button type="submit" class="text-button">退出登录 ↗</button></form></div>
     </aside>
     <main class="main-content">
       {% if messages %}<div class="messages" role="status">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}

@@ -9,5 +9,5 @@
 {% else %}<div class="empty-state"><div>▥</div><h3>{% if query or selected_category or selected_status %}没有找到符合条件的书{% else %}书架还是空的{% endif %}</h3><p>{% if query or selected_category or selected_status %}试试调整搜索词或筛选条件。{% else %}从扫描第一本书的 ISBN 开始。{% endif %}</p><a class="button primary" href="{% url 'book_new' %}">＋ 录入新书</a></div>{% endif %}
 {% if page.paginator.num_pages > 1 %}<div class="pagination">{% if page.has_previous %}<a href="?q={{ query|urlencode }}&category={{ selected_category }}&status={{ selected_status }}&page={{ page.previous_page_number }}">← 上一页</a>{% endif %}<span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>{% if page.has_next %}<a href="?q={{ query|urlencode }}&category={{ selected_category }}&status={{ selected_status }}&page={{ page.next_page_number }}">下一页 →</a>{% endif %}</div>{% endif %}
 </section>
-<div class="list-footer"><span>数据属于你，随时可以带走。</span><a href="{% url 'export_csv' %}">导出全部 CSV ↗</a></div>
+<div class="list-footer"><span>数据属于你，随时可以带走。</span><a href="{% url 'export_csv' %}" data-turbo="false">导出全部 CSV ↗</a></div>
 {% endblock %}

@@ -16,6 +16,13 @@ await build({
   format: 'iife',
   outfile: join(output, 'scan.bundle.js'),
 });
+await build({
+  entryPoints: ['frontend/navigation.js'],
+  bundle: true,
+  minify: true,
+  format: 'iife',
+  outfile: join(output, 'navigation.bundle.js'),
+});
 await copyFile('node_modules/tesseract.js/dist/worker.min.js', join(vendor, 'worker.min.js'));
 for (const filename of await readdir('node_modules/tesseract.js-core')) {
   if (filename.startsWith('tesseract-core') && (filename.endsWith('.js') || filename.endsWith('.wasm'))) {
@@ -30,4 +37,4 @@ if (!languageReady) {
   if (!language.ok) throw new Error(`OCR language download failed: ${language.status}`);
   await writeFile(languageFile, Buffer.from(await language.arrayBuffer()));
 }
-console.log('Scanner and offline OCR assets built.');
+console.log('Navigation, scanner, and offline OCR assets built.');

@@ -10,6 +10,7 @@
 - 书名、作者、ISBN、出版社、标签、位置搜索；分类及阅读状态筛选
 - 多级分类、标签、阅读状态、入藏日期、备注
 - UTF-8 CSV 导入导出、本机 SQLite 备份、账号登录
+- 页面快速切换和返回缓存；慢请求显示顶部进度条
 
 ## 本机启动
 
@@ -24,7 +25,7 @@ npm run build
 .venv/bin/python manage.py createsuperuser
 ```
 
-`npm run build` 会下载约 2 MB 的英文 OCR 数据，并把扫码及 OCR 资源复制到本地静态目录。之后运行：
+`npm run build` 会下载约 2 MB 的英文 OCR 数据，并生成页面导航、扫码及 OCR 静态资源。之后运行：
 
 ```bash
 .venv/bin/python manage.py runserver 127.0.0.1:8000
@@ -60,6 +61,8 @@ export JUHE_ISBN_KEY='你的聚合数据Key'
 ## Vercel + Supabase 部署
 
 本机继续使用 SQLite；只要设置 `DATABASE_URL`，Django 就改用 PostgreSQL。Vercel 环境要求同时设置 `DATABASE_URL` 和 `DJANGO_SECRET_KEY`，缺失时会直接报错，避免误用临时 SQLite 或临时密钥。Vercel 自动收集 Django 静态文件；项目的构建命令会先安装 Node 依赖并生成扫码、OCR 资源。无需迁移本机 `db.sqlite3`。
+
+`vercel.json` 将函数区域设置为首尔 `icn1`，以靠近当前韩国区的 Supabase 数据库。如果日后更换数据库区域，请同步调整函数区域。线上 PostgreSQL 连接最长复用 15 秒，减少连续浏览时的重复连接开销。
 
 1. 在 Supabase 创建一个**空白项目**。本项目只由 Django 直连 PostgreSQL，不使用 Supabase 客户端或自动生成的 REST/GraphQL 接口，因此在 Supabase 控制台的 **Integrations → Data API** 中关闭 **Enable Data API**。从项目的 **Connect** 面板复制 **Transaction pooler** 连接串（端口 `6543`），供 Vercel 的 `DATABASE_URL` 环境变量使用。密码若含有 `@`、`#` 等特殊字符，须在 URL 中进行百分号编码。连接串只放在服务器环境变量中，切勿提交到 Git；无需把 Supabase API Key 配到本项目。
 2. 在项目目录执行 `npx vercel@latest link` 创建并关联 Vercel 项目。为项目的 **Production** 环境设置 `DATABASE_URL` 和 `DJANGO_SECRET_KEY`；后者可用 `python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'` 生成，后续部署中保持不变。按需添加 `SHOWAPI_APP_KEY` 和 `JUHE_ISBN_KEY`。

@@ -17,7 +17,7 @@
   <ol id="scan-history" class="scan-history" aria-label="本次自动保存记录" hidden></ol>
 </section>
 {% endif %}
-<form method="post" class="editor-form" id="book-form">{% csrf_token %}
+<form method="post" class="editor-form" id="book-form" data-turbo="false">{% csrf_token %}
 <section class="form-section"><div class="section-number">01</div><div class="section-body"><h2>图书信息</h2><p class="section-note">相同 ISBN 的实体书会共用这些资料。</p>
 {% if edition_form.non_field_errors %}<div class="form-error">{{ edition_form.non_field_errors }}</div>{% endif %}
 <div class="fields"><div class="field"><label for="{{ edition_form.isbn.id_for_label }}">ISBN</label><div class="inline-input">{{ edition_form.isbn }}{% if mode == 'new' %}<button type="button" id="lookup-button" class="button secondary">查询</button>{% endif %}</div>{{ edition_form.isbn.errors }}</div>
@@ -31,4 +31,4 @@
 <div class="form-actions"><a href="{% if edition %}{% url 'book_detail' edition.pk %}{% else %}{% url 'book_list' %}{% endif %}" class="button secondary">取消</a><button class="button primary" type="submit">{% if mode == 'new' %}保存到书架 →{% else %}保存修改 →{% endif %}</button></div></form></div>
 <aside class="form-aside"><div class="tip-card"><span class="tip-mark">✳</span><h3>录入小提示</h3><p>ISBN 可识别 10 位或 13 位书号。拍摄条码时尽量保持清晰、平整和充足光线。</p><p>若照片里只有印刷的 ISBN 数字，系统会尝试文字识别，请在保存前核对结果。</p></div></aside></div>
 {% endblock %}
-{% block scripts %}{% if mode == 'new' %}<script src="{% static 'catalog/scan.bundle.js' %}" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{% if mode == 'new' %}<script src="{% static 'catalog/scan.bundle.js' %}"></script>{% endif %}{% endblock %}

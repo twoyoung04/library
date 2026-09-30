@@ -72,7 +72,8 @@ if database_url:
         'HOST': url.hostname,
         'PORT': url.port or 5432,
         'OPTIONS': {'sslmode': 'require'},
-        'CONN_MAX_AGE': 0,
+        # Reuse a warm function's connection during short navigation bursts.
+        'CONN_MAX_AGE': 15 if IS_VERCEL else 0,
         'DISABLE_SERVER_SIDE_CURSORS': True,
     }}
 else:

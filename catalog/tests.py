@@ -3,8 +3,10 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from .isbn import normalize_isbn
@@ -55,6 +57,19 @@ class LibraryFlowTests(TestCase):
         self.assertEqual(normalize_isbn('978-0-14-032872-1'), '9780140328721')
         with self.assertRaises(ValueError):
             normalize_isbn('9780140328722')
+
+    def test_book_list_query_count_stays_bounded(self):
+        edition = Edition.objects.create(isbn='9780140328721', title='A book')
+        Copy.objects.bulk_create([Copy(edition=edition, status=Copy.Status.READ if n < 5
+                                       else Copy.Status.UNREAD) for n in range(30)])
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse('book_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['total_copies'], 30)
+        self.assertEqual(response.context['read_count'], 5)
+        self.assertEqual(response.context['page'].paginator.count, 30)
+        self.assertEqual(len(response.context['page'].object_list), 24)
+        self.assertLessEqual(len(queries), 6)
 
     def test_duplicate_isbn_adds_copy_without_overwriting_edition(self):
         url = reverse('book_new')

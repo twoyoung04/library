@@ -14,6 +14,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
+from django.utils.functional import cached_property
 
 from .forms import CategoryForm, CopyForm, EditionForm
 from .isbn import normalize_isbn
@@ -57,12 +58,27 @@ def _edition_fields(metadata):
     }
 
 
+class KnownCountPaginator(Paginator):
+    def __init__(self, object_list, per_page, known_count=None):
+        super().__init__(object_list, per_page)
+        self.known_count = known_count
+
+    @cached_property
+    def count(self):
+        return self.known_count if self.known_count is not None else self.object_list.count()
+
+
 @login_required
 def book_list(request):
-    copies = Copy.objects.select_related('edition', 'edition__category').prefetch_related('edition__tags')
+    copies = Copy.objects.select_related('edition', 'edition__category')
     query = request.GET.get('q', '').strip()[:100]
     category = request.GET.get('category', '')
     status = request.GET.get('status', '')
+    categories = list(Category.objects.all())
+    stats = Copy.objects.aggregate(
+        total_copies=Count('pk'),
+        read_count=Count('pk', filter=Q(status=Copy.Status.READ)),
+    )
     if query:
         copies = copies.filter(Q(edition__title__icontains=query) |
                                Q(edition__author__icontains=query) |
@@ -70,17 +86,20 @@ def book_list(request):
                                Q(edition__publisher__icontains=query) |
                                Q(location__icontains=query) |
                                Q(edition__tags__name__icontains=query)).distinct()
-    if category.isdigit() and Category.objects.filter(pk=category).exists():
+    valid_category = category.isdigit() and int(category) in {item.pk for item in categories}
+    if valid_category:
         copies = copies.filter(edition__category_id__in=_descendant_ids(int(category)))
-    if status in Copy.Status.values:
+    valid_status = status in Copy.Status.values
+    if valid_status:
         copies = copies.filter(status=status)
-    page = Paginator(copies, 24).get_page(request.GET.get('page'))
+    known_count = stats['total_copies'] if not (query or valid_category or valid_status) else None
+    page = KnownCountPaginator(copies, 24, known_count=known_count).get_page(request.GET.get('page'))
     return render(request, 'catalog/list.html', {
         'page': page, 'query': query, 'selected_category': category,
-        'selected_status': status, 'categories': Category.objects.all(),
-        'statuses': Copy.Status.choices, 'total_copies': Copy.objects.count(),
+        'selected_status': status, 'categories': categories,
+        'statuses': Copy.Status.choices, 'total_copies': stats['total_copies'],
         'total_editions': Edition.objects.count(),
-        'read_count': Copy.objects.filter(status=Copy.Status.READ).count(),
+        'read_count': stats['read_count'],
     })
 
 

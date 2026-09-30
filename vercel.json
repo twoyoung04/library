@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "django",
-  "buildCommand": "python build.py"
+  "buildCommand": "python build.py",
+  "regions": ["icn1"]
 }
