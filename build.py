@@ -29,28 +29,6 @@ def main():
     environment['DATABASE_URL'] = os.environ.get('MIGRATION_DATABASE_URL') or migration_database_url(database_url)
     subprocess.run(['python', 'manage.py', 'migrate', '--noinput'], check=True, env=environment)
 
-    password_hash = os.environ.get('DJANGO_BOOTSTRAP_PASSWORD_HASH', '').strip()
-    if password_hash:
-        os.environ['DATABASE_URL'] = environment['DATABASE_URL']
-        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'library.settings')
-        import django
-        django.setup()
-        from django.contrib.auth import get_user_model
-
-        username = os.environ.get('DJANGO_BOOTSTRAP_USERNAME', 'owner').strip()
-        if not username:
-            raise RuntimeError('DJANGO_BOOTSTRAP_USERNAME cannot be empty.')
-        user, created = get_user_model().objects.get_or_create(
-            username=username,
-            defaults={
-                'password': password_hash,
-                'is_staff': True,
-                'is_superuser': True,
-                'is_active': True,
-            },
-        )
-        print(f'Bootstrap admin {username}: {"created" if created else "already exists"}.')
-
 
 if __name__ == '__main__':
     main()
