@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from html import unescape
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -21,6 +22,17 @@ def fetch_json(url, form=None):
         return None
 
 
+def fetch_html(url):
+    request = Request(url, headers={'User-Agent': 'PersonalLibrary/1.0 (private catalog)',
+                                    'Accept': 'text/html'})
+    try:
+        with urlopen(request, timeout=5) as response:
+            return response.read(300_000).decode(response.headers.get_content_charset() or 'utf-8',
+                                                 errors='replace')
+    except (HTTPError, URLError, TimeoutError, ValueError):
+        return None
+
+
 def lookup_wuming(isbn):
     """Read only the bibliographic fields from the public Wuming Books API."""
     data = fetch_json('https://www.book345.com/api/detail/' + quote(isbn))
@@ -35,6 +47,60 @@ def lookup_wuming(isbn):
         'published_year': _year(data.get('pubDate')),
         'cover_url': _cover(image), 'source': '无名图书',
     }
+
+
+def lookup_neodb(isbn):
+    """Search NeoDB's public catalog and accept only an exact edition ISBN."""
+    url = 'https://neodb.social/api/catalog/search?' + urlencode({
+        'category': 'book', 'query': isbn,
+    })
+    response = fetch_json(url)
+    if not isinstance(response, dict) or not isinstance(response.get('data'), list):
+        return None
+    for item in response['data']:
+        if not isinstance(item, dict) or not _same_isbn(item.get('isbn'), isbn):
+            continue
+        title = item.get('title') or item.get('display_title')
+        if not isinstance(title, str) or not title.strip():
+            continue
+        return {
+            'title': title.strip(), 'author': _names(item.get('author')),
+            'publisher': _names(item.get('pub_house') or item.get('publisher')),
+            'published_year': _year(item.get('pub_year')),
+            'cover_url': _cover(item.get('cover_image_url')),
+            'source': 'NeoDB',
+        }
+    return None
+
+
+def lookup_cp(isbn):
+    """Search the publisher's public catalog for ISBNs in its 978-7-100 range."""
+    if not isbn.startswith('9787100'):
+        return None
+    formatted = f'978-7-100-{isbn[7:12]}-{isbn[12]}'
+    search_url = 'https://www.cp.com.cn/AdvancedSearch_Text.dhtml?' + urlencode({
+        'g_fw': '0', 'g_isbn': formatted, 'g_sm': '', 'g_zz': '',
+    })
+    search_page = fetch_html(search_url) or ''
+    paths = re.findall(r'<h2>\s*<a\s+href="(/book/[a-zA-Z0-9-]+\.html)"', search_page)
+    for path in paths[:3]:
+        page = fetch_html('https://www.cp.com.cn' + path) or ''
+        found_isbn = re.search(r'ISBN[：:]\s*([0-9Xx\- ]{10,20})', page)
+        if not found_isbn or not _same_isbn(found_isbn.group(1), isbn):
+            continue
+        title_match = re.search(r'<title>\s*([^<]+)\s*</title>', page, re.I)
+        if not title_match or not title_match.group(1).strip():
+            continue
+        date_match = re.search(r'出版时间[：:]\s*([12]\d{3})', page)
+        cover_match = re.search(r'<div class="book_pic">.*?<img\s+src="([^"]+)"', page, re.S)
+        return {
+            'title': unescape(title_match.group(1)).strip(), 'author': '',
+            'publisher': '商务印书馆',
+            'published_year': int(date_match.group(1)) if date_match else None,
+            'cover_url': _cover(cover_match.group(1)) if cover_match else '',
+            'source': '商务印书馆',
+        }
+    return None
 
 
 def lookup_showapi(isbn):
@@ -80,7 +146,7 @@ def lookup_juhe(isbn):
 
 
 def lookup_book(isbn):
-    domestic = (lookup_wuming, lookup_showapi, lookup_juhe)
+    domestic = (lookup_wuming, lookup_neodb, lookup_cp, lookup_showapi, lookup_juhe)
     international = (lookup_google, lookup_openlibrary)
     for provider in domestic + international:
         result = provider(isbn)
@@ -143,6 +209,14 @@ def _cover(value):
     if value.startswith('http://'):
         value = 'https://' + value[7:]
     return value if value.startswith('https://') else ''
+
+
+def _names(value):
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        return '、'.join(item.strip() for item in value if isinstance(item, str) and item.strip())
+    return ''
 
 
 def _year(value):

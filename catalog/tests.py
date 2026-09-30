@@ -8,7 +8,7 @@ from django.test import Client
 from django.urls import reverse
 
 from .isbn import normalize_isbn
-from .lookup import lookup_book, lookup_juhe, lookup_showapi, lookup_wuming
+from .lookup import lookup_book, lookup_cp, lookup_juhe, lookup_neodb, lookup_showapi, lookup_wuming
 from .models import Category, Copy, Edition
 
 
@@ -114,6 +114,42 @@ class LibraryFlowTests(TestCase):
         self.assertEqual(result['cover_url'], 'https://www.book345.com/covers/9787544258975.jpg')
         self.assertIsNone(lookup_wuming('9787208061644'))
 
+    @patch('catalog.lookup.fetch_json')
+    def test_neodb_matches_exact_edition_isbn(self, fetch):
+        fetch.return_value = {'data': [
+            {'isbn': '9787100202176', 'title': '同名的其他版本'},
+            {'isbn': '978-7-100-20216-9', 'title': '培根随笔全集',
+             'author': ['[英]弗朗西斯·培根'], 'publisher': ['商务印书馆'],
+             'pub_year': 2021, 'cover_image_url': 'https://neodb.social/cover.jpg'},
+        ]}
+        result = lookup_neodb('9787100202169')
+        self.assertEqual(result['title'], '培根随笔全集')
+        self.assertEqual(result['author'], '[英]弗朗西斯·培根')
+        self.assertEqual(result['publisher'], '商务印书馆')
+        self.assertEqual(result['published_year'], 2021)
+        self.assertEqual(result['source'], 'NeoDB')
+        fetch.return_value = {'data': [{'isbn': '9787100202176', 'title': '同名的其他版本'}]}
+        self.assertIsNone(lookup_neodb('9787100202169'))
+
+    @patch('catalog.lookup.fetch_html')
+    def test_cp_search_checks_detail_isbn(self, fetch):
+        fetch.side_effect = [
+            '<h2><a href="/book/example-9.html">培根随笔全集</a></h2>',
+            '<title>培根随笔全集</title><div class="book_pic"><img src="https://pic.cp.com.cn/cover.jpg"></div>'
+            '<li>出版时间：2021年10月</li><li>ISBN：978-7-100-20216-9</li>',
+        ]
+        result = lookup_cp('9787100202169')
+        self.assertEqual(result['title'], '培根随笔全集')
+        self.assertEqual(result['publisher'], '商务印书馆')
+        self.assertEqual(result['published_year'], 2021)
+        self.assertEqual(result['cover_url'], 'https://pic.cp.com.cn/cover.jpg')
+        self.assertIn('978-7-100-20216-9', fetch.call_args_list[0].args[0])
+        fetch.side_effect = [
+            '<h2><a href="/book/example-9.html">培根随笔全集</a></h2>',
+            '<title>培根随笔全集</title><li>ISBN：978-7-100-20217-6</li>',
+        ]
+        self.assertIsNone(lookup_cp('9787100202169'))
+
     @patch.dict(os.environ, {'SHOWAPI_APP_KEY': 'test-key'})
     @patch('catalog.lookup.fetch_json')
     def test_showapi_response_mapping(self, fetch):
@@ -147,6 +183,17 @@ class LibraryFlowTests(TestCase):
         wuming.assert_called_once()
         showapi.assert_not_called()
         juhe.assert_not_called()
+
+    @patch('catalog.lookup.lookup_wuming', return_value=None)
+    @patch('catalog.lookup.lookup_neodb', return_value={'title': '培根随笔全集', 'source': 'NeoDB'})
+    @patch('catalog.lookup.lookup_cp')
+    @patch('catalog.lookup.lookup_google')
+    def test_neodb_hit_precedes_other_sources(self, google, cp, neodb, wuming):
+        self.assertEqual(lookup_book('9787100202169')['title'], '培根随笔全集')
+        wuming.assert_called_once_with('9787100202169')
+        neodb.assert_called_once_with('9787100202169')
+        cp.assert_not_called()
+        google.assert_not_called()
 
     @patch('catalog.lookup.lookup_wuming', return_value={'title': '国内书', 'source': '无名图书'})
     @patch('catalog.lookup.lookup_showapi')
