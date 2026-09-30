@@ -4,11 +4,44 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.test import Client
 from django.urls import reverse
 
 from .isbn import normalize_isbn
 from .lookup import lookup_book, lookup_juhe, lookup_showapi, lookup_wuming
 from .models import Category, Copy, Edition
+
+
+class LoginCsrfTests(TestCase):
+    def test_duplicate_login_after_success_redirects_to_library(self):
+        get_user_model().objects.create_user(username='owner', password='safe-test-password')
+        client = Client(enforce_csrf_checks=True)
+        login_url = reverse('login')
+        client.get(login_url)
+        old_token = client.cookies['csrftoken'].value
+        credentials = {
+            'username': 'owner',
+            'password': 'safe-test-password',
+            'csrfmiddlewaretoken': old_token,
+        }
+
+        first = client.post(login_url, credentials)
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(first['Location'], reverse('book_list'))
+        self.assertNotEqual(client.cookies['csrftoken'].value, old_token)
+
+        repeated = client.post(login_url, credentials)
+        self.assertRedirects(repeated, reverse('book_list'))
+
+    def test_invalid_csrf_still_rejected_for_anonymous_user(self):
+        client = Client(enforce_csrf_checks=True)
+        client.get(reverse('login'))
+        response = client.post(reverse('login'), {
+            'username': 'owner',
+            'password': 'wrong',
+            'csrfmiddlewaretoken': 'invalid',
+        })
+        self.assertEqual(response.status_code, 403)
 
 
 class LibraryFlowTests(TestCase):
