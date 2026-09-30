@@ -9,6 +9,9 @@ const preview = document.getElementById('camera-preview');
 const duplicateNotice = document.getElementById('duplicate-notice');
 const reader = new BrowserMultiFormatOneDReader();
 let cameraControls = null;
+let cameraStream = null;
+let cameraStarting = false;
+let cameraRun = 0;
 let busy = false;
 
 function message(text, kind = '') {
@@ -69,36 +72,85 @@ async function lookup(raw) {
 }
 
 function stopCamera() {
+  cameraRun += 1;
   if (cameraControls) cameraControls.stop();
   cameraControls = null;
+  if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
+  cameraStream = null;
   preview.hidden = true;
   cameraButton.textContent = '打开摄像头';
 }
 
+async function applyMobileZoom(stream) {
+  if (!window.matchMedia?.('(pointer: coarse)').matches) return null;
+  const track = stream.getVideoTracks()[0];
+  let range;
+  try { range = track?.getCapabilities?.().zoom; } catch (_) { return null; }
+  if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max) || range.max <= 1) return null;
+
+  let zoom = Math.min(2, range.max);
+  zoom = Math.max(range.min, zoom);
+  if (Number.isFinite(range.step) && range.step > 0) {
+    zoom = range.min + Math.round((zoom - range.min) / range.step) * range.step;
+    zoom = Math.min(range.max, Math.max(range.min, zoom));
+  }
+  if (zoom <= 1) return null;
+
+  try {
+    await track.applyConstraints({ advanced: [{ zoom }] });
+    const actual = track.getSettings?.().zoom;
+    return Number.isFinite(actual) ? actual : zoom;
+  } catch (_) {
+    return null;
+  }
+}
+
 cameraButton.addEventListener('click', async () => {
   if (cameraControls) { stopCamera(); return; }
+  if (cameraStarting) return;
   if (!navigator.mediaDevices?.getUserMedia) {
     message('当前页面无法打开摄像头。手机访问需要 HTTPS；也可选择“拍照 / 上传图片”。', 'error');
     return;
   }
+  cameraStarting = true;
+  cameraButton.disabled = true;
+  const run = ++cameraRun;
   try {
-    message('请将书背条码放入画面中…');
+    message('正在打开后置摄像头…');
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
+      audio: false,
+    });
+    if (run !== cameraRun) { stream.getTracks().forEach(track => track.stop()); return; }
+    cameraStream = stream;
+    const zoom = await applyMobileZoom(stream);
+    if (run !== cameraRun) return;
+    message(zoom && zoom > 1
+      ? `已启用约 ${zoom.toFixed(1)} 倍变焦，请将书背条码放入画面中…`
+      : '请将书背条码放入画面中…');
     preview.hidden = false;
-    cameraControls = await reader.decodeFromVideoDevice(undefined, preview, (result, error, controls) => {
+    const controls = await reader.decodeFromStream(stream, preview, (result, error, controls) => {
       if (!result || busy) return;
       const isbn = normalize(result.getText());
       if (!isbn) return;
       busy = true;
-      controls.stop();
-      cameraControls = null;
-      preview.hidden = true;
-      cameraButton.textContent = '打开摄像头';
+      cameraControls = controls;
+      stopCamera();
       lookup(isbn).finally(() => { busy = false; });
     });
+    if (run !== cameraRun) { controls.stop(); return; }
+    cameraControls = controls;
     cameraButton.textContent = '关闭摄像头';
   } catch (error) {
-    preview.hidden = true;
+    stopCamera();
     message('摄像头未能启动，请检查权限，或改用拍照上传。', 'error');
+  } finally {
+    cameraStarting = false;
+    cameraButton.disabled = false;
   }
 });
 
