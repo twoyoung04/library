@@ -8,7 +8,8 @@ from django.test import Client
 from django.urls import reverse
 
 from .isbn import normalize_isbn
-from .lookup import lookup_book, lookup_cp, lookup_juhe, lookup_neodb, lookup_showapi, lookup_wuming
+from .lookup import (lookup_book, lookup_cdclib, lookup_cp, lookup_douban, lookup_juhe,
+                     lookup_neodb, lookup_showapi, lookup_wuming)
 from .models import Category, Copy, Edition
 
 
@@ -253,6 +254,54 @@ class LibraryFlowTests(TestCase):
             '<title>培根随笔全集</title><li>ISBN：978-7-100-20217-6</li>',
         ]
         self.assertIsNone(lookup_cp('9787100202169'))
+
+    @patch('catalog.lookup.fetch_html')
+    def test_douban_reads_matching_structured_book(self, fetch):
+        fetch.return_value = '''
+            <script type="application/ld+json">{"@type":"Book","name":"爱弥儿",
+              "isbn":"9787107313325","author":[{"name":"让-雅克·卢梭"}]}</script>
+            <meta property="og:image" content="https://example.com/cover.jpg">
+            <span class="pl">出版社:</span> <a>人民教育出版社</a><br>
+            <span class="pl">出版年:</span> 2017-5-1<br>'''
+        result = lookup_douban('9787107313325')
+        self.assertEqual(result['title'], '爱弥儿')
+        self.assertEqual(result['author'], '让-雅克·卢梭')
+        self.assertEqual(result['publisher'], '人民教育出版社')
+        self.assertEqual(result['published_year'], 2017)
+        self.assertEqual(result['cover_url'], 'https://example.com/cover.jpg')
+        self.assertEqual(result['source'], '豆瓣读书')
+        fetch.return_value = fetch.return_value.replace('9787107313325', '9787100202169')
+        self.assertIsNone(lookup_douban('9787107313325'))
+
+    @patch('catalog.lookup.fetch_html')
+    def test_cdclib_ignores_other_editions(self, fetch):
+        fetch.return_value = '''
+            <li class="libBookLi notBorder"><a class="libBookDetNm">其他版本</a>
+              <img isbn="978-7-100-20216-9"></li>
+            <li class="libBookLi notBorder"><a class="libBookDetNm">爱弥儿：论教育．上册</a>
+              <img isbn="978-7-107-31332-5">
+              <span class="libBkDetTit">责任者</span><a>卢梭著</a></p>
+              <span class="libBkDetTit">出版信息</span><a>人民教育出版社</a>,2017</p>
+            </li>'''
+        result = lookup_cdclib('9787107313325')
+        self.assertEqual(result['title'], '爱弥儿：论教育．上册')
+        self.assertEqual(result['author'], '卢梭著')
+        self.assertEqual(result['publisher'], '人民教育出版社')
+        self.assertEqual(result['published_year'], 2017)
+        self.assertEqual(result['source'], '成都图书馆')
+        self.assertIn('searchWay=isbn', fetch.call_args.args[0])
+        self.assertIsNone(lookup_cdclib('9787208061644'))
+
+    @patch('catalog.lookup.lookup_wuming', return_value=None)
+    @patch('catalog.lookup.lookup_neodb', return_value=None)
+    @patch('catalog.lookup.lookup_cp', return_value=None)
+    @patch('catalog.lookup.lookup_douban', return_value=None)
+    @patch('catalog.lookup.lookup_cdclib', return_value={'title': '爱弥儿', 'source': '成都图书馆'})
+    @patch('catalog.lookup.lookup_google')
+    def test_domestic_library_hit_precedes_google(self, google, cdclib, douban, cp, neodb, wuming):
+        self.assertEqual(lookup_book('9787107313325')['source'], '成都图书馆')
+        cdclib.assert_called_once_with('9787107313325')
+        google.assert_not_called()
 
     @patch.dict(os.environ, {'SHOWAPI_APP_KEY': 'test-key'})
     @patch('catalog.lookup.fetch_json')

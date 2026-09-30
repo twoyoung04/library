@@ -34,7 +34,7 @@ npm run build
 
 ## 国内图书数据源
 
-系统会自动查询[无名图书公开接口](https://www.book345.com/mcp)、[NeoDB 公开书目](https://neodb.social/developer/)；商务印书馆 ISBN 段还会查询[出版社官网书目](https://www.cp.com.cn/AdvancedSearch.html)。这些来源无需密钥。所有 ISBN 都优先查询国内书目，未查到时再查 Google Books 和 Open Library。系统只读取书名、作者、出版社、出版年和封面，不使用电子书链接。每次查询都核对返回的 ISBN。商务印书馆官网书目只覆盖该社图书，部分字段可能需要手动补齐。
+系统会自动查询[无名图书公开接口](https://www.book345.com/mcp)、[NeoDB 公开书目](https://neodb.social/developer/)、[豆瓣读书条目](https://help.douban.com/tiaomu?app=4)与[成都图书馆馆藏目录](https://opac.cdclib.cn/opac/)；商务印书馆 ISBN 段还会查询[出版社官网书目](https://www.cp.com.cn/AdvancedSearch.html)。这些来源无需密钥。所有 ISBN 都优先查询国内书目，未查到时再查 Google Books 和 Open Library。系统只读取书名、作者、出版社、出版年和封面，不使用电子书链接。每次查询都核对返回的 ISBN。出版社官网和图书馆馆藏目录只覆盖各自收录的图书，部分字段可能需要手动补齐。
 
 还可以按需接入两个来源，提高未命中书籍的覆盖率：
 
@@ -49,7 +49,7 @@ export JUHE_ISBN_KEY='你的聚合数据Key'
 .venv/bin/python manage.py runserver 127.0.0.1:8000
 ```
 
-不要把密钥写入前端文件或提交到 Git。国内来源按“无名图书 → NeoDB → 商务印书馆（适用时）→ 万维易源 → 聚合数据”依次尝试；前一来源命中后不再调用后续来源。查询结果会缓存 24 小时，未命中结果缓存 1 小时。设置新密钥并重启服务后，旧的未命中缓存不会阻挡新来源。每个来源的覆盖率取决于它自己的书目数据，建议用你手中的一批 ISBN 实测。
+不要把密钥写入前端文件或提交到 Git。国内来源按“无名图书 → NeoDB → 商务印书馆（适用时）→ 豆瓣读书 → 成都图书馆 → 万维易源 → 聚合数据”依次尝试；前一来源命中后不再调用后续来源。查询结果会缓存 24 小时，未命中结果缓存 1 小时。设置新密钥并重启服务后，旧的未命中缓存不会阻挡新来源。每个来源的覆盖率取决于它自己的书目数据，建议用你手中的一批 ISBN 实测。
 
 ## 手机使用
 

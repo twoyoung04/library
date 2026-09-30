@@ -103,6 +103,68 @@ def lookup_cp(isbn):
     return None
 
 
+def lookup_douban(isbn):
+    """Read an ISBN's public Douban book page when its structured ISBN matches."""
+    page = fetch_html('https://book.douban.com/isbn/' + quote(isbn) + '/') or ''
+    for raw in re.findall(r'<script\b[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+                          page, re.I | re.S):
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(data, dict) or data.get('@type') != 'Book':
+            continue
+        if not _same_isbn(data.get('isbn'), isbn):
+            continue
+        title = data.get('name')
+        if not isinstance(title, str) or not title.strip():
+            continue
+        authors = data.get('author') or []
+        if not isinstance(authors, list):
+            authors = [authors]
+        author = '、'.join(name for item in authors
+                          if (name := item.get('name') if isinstance(item, dict) else item)
+                          and isinstance(name, str))
+        cover_match = re.search(r'<meta\b[^>]*property=["\']og:image["\'][^>]*content=["\']([^"\']+)',
+                                page, re.I)
+        return {
+            'title': title.strip(), 'author': author,
+            'publisher': _plain(_labeled_html(page, '出版社')),
+            'published_year': _year(_plain(_labeled_html(page, '出版年'))),
+            'cover_url': _cover(unescape(cover_match.group(1))) if cover_match else '',
+            'source': '豆瓣读书',
+        }
+    return None
+
+
+def lookup_cdclib(isbn):
+    """Search Chengdu Library's public ISBN catalog for a matching record."""
+    url = 'https://opac.cdclib.cn/opac/search?' + urlencode({
+        'q': isbn, 'searchWay': 'isbn', 'searchSource': 'reader', 'scWay': 'full',
+    })
+    page = fetch_html(url) or ''
+    records = re.split(r'<li\b[^>]*class=["\'][^"\']*\blibBookLi\b[^"\']*["\'][^>]*>',
+                       page, flags=re.I)
+    for record in records[1:11]:
+        found_isbn = re.search(r'<img\b[^>]*\bisbn=["\']([^"\']+)', record, re.I)
+        if not found_isbn or not _same_isbn(found_isbn.group(1), isbn):
+            continue
+        title_match = re.search(r'<a\b[^>]*class=["\']libBookDetNm["\'][^>]*>(.*?)</a>',
+                                record, re.I | re.S)
+        title = _plain(title_match.group(1)) if title_match else ''
+        if not title:
+            continue
+        author = _plain(_labeled_html(record, '责任者'))
+        publication = _plain(_labeled_html(record, '出版信息'))
+        publisher = re.sub(r'[,，]\s*[12]\d{3}.*$', '', publication).strip()
+        return {
+            'title': title, 'author': author, 'publisher': publisher,
+            'published_year': _year(publication), 'cover_url': '',
+            'source': '成都图书馆',
+        }
+    return None
+
+
 def lookup_showapi(isbn):
     key = os.environ.get('SHOWAPI_APP_KEY', '').strip()
     if not key or not isbn.startswith('978'):
@@ -146,7 +208,8 @@ def lookup_juhe(isbn):
 
 
 def lookup_book(isbn):
-    domestic = (lookup_wuming, lookup_neodb, lookup_cp, lookup_showapi, lookup_juhe)
+    domestic = (lookup_wuming, lookup_neodb, lookup_cp, lookup_douban, lookup_cdclib,
+                lookup_showapi, lookup_juhe)
     international = (lookup_google, lookup_openlibrary)
     for provider in domestic + international:
         result = provider(isbn)
@@ -209,6 +272,17 @@ def _cover(value):
     if value.startswith('http://'):
         value = 'https://' + value[7:]
     return value if value.startswith('https://') else ''
+
+
+def _plain(value):
+    return re.sub(r'\s+', ' ', unescape(re.sub(r'<[^>]+>', ' ', value or ''))).strip()
+
+
+def _labeled_html(page, label):
+    match = re.search(r'<span\b[^>]*class=["\'][^"\']*\b(?:pl|libBkDetTit)\b[^"\']*["\'][^>]*>'
+                      + r'\s*' + re.escape(label) + r'\s*[：:]?\s*</span>\s*(.*?)(?:<br\s*/?>|</p>)',
+                      page, re.I | re.S)
+    return match.group(1) if match else ''
 
 
 def _names(value):
