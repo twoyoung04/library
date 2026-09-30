@@ -60,16 +60,16 @@ export JUHE_ISBN_KEY='你的聚合数据Key'
 
 1. 在 Supabase 创建一个**空白项目**。本项目只由 Django 直连 PostgreSQL，不使用 Supabase 客户端或自动生成的 REST/GraphQL 接口，因此在 Supabase 控制台的 **Integrations → Data API** 中关闭 **Enable Data API**。从项目的 **Connect** 面板复制 **Transaction pooler** 连接串（端口 `6543`），供 Vercel 的 `DATABASE_URL` 环境变量使用。密码若含有 `@`、`#` 等特殊字符，须在 URL 中进行百分号编码。连接串只放在服务器环境变量中，切勿提交到 Git；无需把 Supabase API Key 配到本项目。
 2. 在项目目录执行 `npx vercel@latest link` 创建并关联 Vercel 项目。为项目的 **Production** 环境设置 `DATABASE_URL` 和 `DJANGO_SECRET_KEY`；后者可用 `python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'` 生成，后续部署中保持不变。按需添加 `SHOWAPI_APP_KEY` 和 `JUHE_ISBN_KEY`。
-3. 首次上线前，在本机用 Supabase **Direct connection** 连接串执行数据库迁移并创建管理员：
+3. 在项目目录执行 `npx vercel@latest --prod`。Production 构建会自动执行 Django 数据库迁移，Preview 构建不会修改数据库。项目根目录的 `manage.py` 会被自动识别。确认 Vercel 项目已启用系统环境变量；`VERCEL_URL` 和 `VERCEL_PROJECT_PRODUCTION_URL` 会自动加入 Django 允许的域名与 CSRF 来源。若使用其他自定义域名，另设 `DJANGO_ALLOWED_HOSTS` 与 `DJANGO_CSRF_TRUSTED_ORIGINS`（逗号分隔，后者需写完整 `https://` 来源）。`.vercelignore` 会阻止本机数据库、密钥和备份文件通过 CLI 上传。
+4. 首次部署成功后，在本机用 Supabase **Direct connection** 连接串创建管理员；也可以先手动执行迁移：
 
    ```bash
    DATABASE_URL='Supabase Direct connection 连接串' .venv/bin/python manage.py migrate
    DATABASE_URL='Supabase Direct connection 连接串' .venv/bin/python manage.py createsuperuser
    ```
 
-   如果本机网络不支持 Supabase 直连所需的 IPv6，可改用 **Session pooler** 连接串（端口 `5432`）。迁移命令不要使用 Transaction pooler。首次运行前先按“本机启动”安装 Python 依赖。
-4. 在项目目录执行 `npx vercel@latest --prod`。项目根目录的 `manage.py` 会被自动识别。确认 Vercel 项目已启用系统环境变量；`VERCEL_URL` 和 `VERCEL_PROJECT_PRODUCTION_URL` 会自动加入 Django 允许的域名与 CSRF 来源。若使用其他自定义域名，另设 `DJANGO_ALLOWED_HOSTS` 与 `DJANGO_CSRF_TRUSTED_ORIGINS`（逗号分隔，后者需写完整 `https://` 来源）。`.vercelignore` 会阻止本机数据库、密钥和备份文件通过 CLI 上传。
-5. 打开部署后的 HTTPS 地址，用第 3 步的管理员账号登录，检查书目录入、静态文件、扫码与照片识别。以后修改 Django 模型时，先在目标数据库执行 `migrate`，再部署相应代码。
+   如果本机网络不支持 Supabase 直连所需的 IPv6，可改用 **Session pooler** 连接串（端口 `5432`）。迁移命令不要使用 Transaction pooler；构建脚本会自动将 Supabase 的 Transaction pooler 端口 `6543` 转成 Session pooler 端口 `5432` 用于迁移。若使用其他 PostgreSQL 服务，可单独配置 Vercel 的 `MIGRATION_DATABASE_URL`。首次运行前先按“本机启动”安装 Python 依赖。
+5. 打开部署后的 HTTPS 地址，用第 4 步创建的管理员账号登录，检查书目录入、静态文件、扫码与照片识别。
 
 Supabase 免费项目可能因长期低活跃度暂停，且需要自行定期导出数据库备份。项目现有的 `backup_library` 命令只适用于本机 SQLite；线上请使用 Supabase 的数据库导出或 `pg_dump`。
 
