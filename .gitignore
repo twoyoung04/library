@@ -1,0 +1,14 @@
+.venv/
+node_modules/
+db.sqlite3
+db.sqlite3-*
+backups/
+.secret_key
+staticfiles/
+catalog/static/catalog/vendor/
+*.pyc
+__pycache__/
+.DS_Store
+.vercel/
+.env
+.env.*

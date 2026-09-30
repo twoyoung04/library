@@ -1,0 +1,37 @@
+{% load static %}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#18312a">
+  <title>{% block title %}藏书簿{% endblock %} · 藏书簿</title>
+  <link rel="stylesheet" href="{% static 'catalog/style.css' %}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="{% url 'book_list' %}"><span class="brand-mark">▥</span><span>藏书簿<small>PERSONAL LIBRARY</small></span></a>
+      <nav class="side-nav" aria-label="主导航">
+        <a href="{% url 'book_list' %}" class="{% if request.resolver_match.url_name == 'book_list' %}active{% endif %}">⌑ <span>全部藏书</span></a>
+        <a href="{% url 'book_new' %}" class="{% if request.resolver_match.url_name == 'book_new' %}active{% endif %}">＋ <span>录入新书</span></a>
+        <a href="{% url 'categories' %}" class="{% if request.resolver_match.url_name == 'categories' %}active{% endif %}">▦ <span>分类管理</span></a>
+        <a href="{% url 'import_csv' %}" class="{% if request.resolver_match.url_name == 'import_csv' %}active{% endif %}">↥ <span>导入数据</span></a>
+      </nav>
+      <div class="sidebar-bottom"><span>为每一本书留个位置。</span><form action="{% url 'logout' %}" method="post">{% csrf_token %}<button type="submit" class="text-button">退出登录 ↗</button></form></div>
+    </aside>
+    <main class="main-content">
+      {% if messages %}<div class="messages" role="status">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <nav class="mobile-nav" aria-label="移动导航">
+    <a href="{% url 'book_list' %}">⌑<small>藏书</small></a>
+    <a href="{% url 'book_new' %}">＋<small>录入</small></a>
+    <a href="{% url 'categories' %}">▦<small>分类</small></a>
+    <a href="{% url 'import_csv' %}">↥<small>导入</small></a>
+  </nav>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

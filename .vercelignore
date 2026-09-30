@@ -1,0 +1,8 @@
+db.sqlite3
+db.sqlite3-*
+.secret_key
+.env
+.env.*
+backups/
+staticfiles/
+catalog/static/catalog/vendor/

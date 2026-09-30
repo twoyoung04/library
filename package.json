@@ -1,0 +1,15 @@
+{
+  "name": "personal-library",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "node frontend/build.mjs"
+  },
+  "dependencies": {
+    "@zxing/browser": "0.2.1",
+    "tesseract.js": "7.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
