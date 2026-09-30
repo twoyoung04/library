@@ -5,14 +5,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#18312a">
-  <title>{% block title %}藏书簿{% endblock %} · 藏书簿</title>
+  <title>{% block title %}我的藏书{% endblock %} · 我的藏书</title>
   <link rel="stylesheet" href="{% static 'catalog/style.css' %}">
   {% block head %}{% endblock %}
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <a class="brand" href="{% url 'book_list' %}"><span class="brand-mark">▥</span><span>藏书簿<small>PERSONAL LIBRARY</small></span></a>
+      <a class="brand" href="{% url 'book_list' %}"><span class="brand-mark">▥</span><span>我的藏书<small>PERSONAL LIBRARY</small></span></a>
       <nav class="side-nav" aria-label="主导航">
         <a href="{% url 'book_list' %}" class="{% if request.resolver_match.url_name == 'book_list' %}active{% endif %}">⌑ <span>全部藏书</span></a>
         <a href="{% url 'book_new' %}" class="{% if request.resolver_match.url_name == 'book_new' %}active{% endif %}">＋ <span>录入新书</span></a>
