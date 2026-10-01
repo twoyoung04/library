@@ -35,6 +35,12 @@
 .book-results{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:2px 4px 6px 2px}
 .book-results:focus-visible{outline:2px solid #719a77;outline-offset:-2px}
 .book-results .empty-state{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.book-grid.is-virtual{--book-row-height:146px}
+.book-grid.is-virtual .book-card{height:var(--book-row-height);overflow:hidden}
+.book-grid.is-virtual .book-info{overflow:hidden}
+.book-results.is-enhanced .pagination{display:none}
+.catalog-scroll-status{padding:12px 0;text-align:center;color:#849385;font-size:11px}
+.catalog-scroll-status:empty{display:none}
 
 @media(max-width:760px){
   .collection-page .main-content{padding:16px 14px calc(72px + env(safe-area-inset-bottom))}

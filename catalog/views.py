@@ -12,6 +12,7 @@ from django.db import transaction
 from django.db.models import Case, Count, F, IntegerField, Q, When
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 from django.utils.functional import cached_property
@@ -86,14 +87,15 @@ BOOK_SORT_OPTIONS = (
 @login_required
 def book_list(request):
     copies = Copy.objects.select_related('edition').prefetch_related('edition__tags')
+    fragment = request.GET.get('fragment') == 'cards'
     query = request.GET.get('q', '').strip()[:100]
     tag = request.GET.get('tag', '')
     status = request.GET.get('status', '')
     sort = request.GET.get('sort', 'added_desc')
     if sort not in dict(BOOK_SORT_OPTIONS):
         sort = 'added_desc'
-    tags = list(Tag.objects.all())
-    total_copies = Copy.objects.count()
+    tags = [] if fragment else list(Tag.objects.all())
+    total_copies = None if fragment and (query or tag or status) else Copy.objects.count()
     if query:
         copies = copies.filter(Q(edition__title__icontains=query) |
                                Q(edition__author__icontains=query) |
@@ -101,9 +103,13 @@ def book_list(request):
                                Q(edition__publisher__icontains=query) |
                                Q(location__icontains=query) |
                                Q(edition__tags__name__icontains=query)).distinct()
-    valid_tag = tag.isdigit() and int(tag) in {item.pk for item in tags}
+    valid_tag = False
+    if tag.isdigit():
+        tag_id = int(tag)
+        valid_tag = (Tag.objects.filter(pk=tag_id).exists() if fragment
+                     else tag_id in {item.pk for item in tags})
     if valid_tag:
-        copies = copies.filter(edition__tags__pk=int(tag))
+        copies = copies.filter(edition__tags__pk=tag_id)
     valid_status = status in Copy.Status.values
     if valid_status:
         copies = copies.filter(status=status)
@@ -123,6 +129,12 @@ def book_list(request):
         copies = copies.order_by('-created_at', '-id')
     known_count = total_copies if not (query or valid_tag or valid_status) else None
     page = KnownCountPaginator(copies, 24, known_count=known_count).get_page(request.GET.get('page'))
+    if fragment:
+        return JsonResponse({
+            'page': page.number,
+            'cards': render_to_string('catalog/_book_cards.html', {'page': page}),
+            'next_page': page.next_page_number() if page.has_next() else None,
+        })
     return render(request, 'catalog/list.html', {
         'page': page, 'query': query, 'selected_tag': tag,
         'selected_status': status, 'selected_sort': sort, 'sort_options': BOOK_SORT_OPTIONS,

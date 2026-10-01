@@ -105,6 +105,25 @@ class LibraryFlowTests(TestCase):
         response = self.client.get(reverse('book_list'), {'q': 'Alpha', 'sort': 'title_asc'})
         self.assertContains(response, 'sort=title_asc&amp;page=2')
 
+    def test_book_list_fragment_loads_next_page_with_same_filters(self):
+        edition = Edition.objects.create(title='Alpha')
+        copies = Copy.objects.bulk_create([Copy(edition=edition) for _ in range(30)])
+        first = self.client.get(reverse('book_list'), {'q': 'Alpha', 'sort': 'added_asc',
+                                                       'fragment': 'cards'})
+        second = self.client.get(reverse('book_list'), {'q': 'Alpha', 'sort': 'added_asc',
+                                                        'page': '2', 'fragment': 'cards'})
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()['page'], 1)
+        self.assertEqual(first.json()['next_page'], 2)
+        self.assertEqual(first.json()['cards'].count('class="book-card"'), 24)
+        self.assertEqual(second.json()['page'], 2)
+        self.assertIsNone(second.json()['next_page'])
+        self.assertEqual(second.json()['cards'].count('class="book-card"'), 6)
+        for copy in copies[24:]:
+            self.assertIn(f'data-copy-id="{copy.pk}"', second.json()['cards'])
+        for copy in copies[:24]:
+            self.assertNotIn(f'data-copy-id="{copy.pk}"', second.json()['cards'])
+
     def test_book_detail_shows_entry_time_for_each_copy(self):
         edition = Edition.objects.create(title='Alpha')
         dates = [timezone.make_aware(datetime(2024, 3, 4, 10, 30)),

@@ -1,10 +1,9 @@
 import { config } from '@hotwired/turbo';
+import { initBookList, saveBookList } from './catalog.js';
 
 // Show that a server request is in progress during slower page changes.
 config.drive.progressBarDelay = 150;
 
-// Keep each filtered shelf at its own position when opening a book and returning.
-const shelfScrollKey = () => `shelf-scroll:${location.pathname}${location.search}`;
 const mobileShelf = window.matchMedia('(max-width: 760px)');
 
 function syncCatalogControls() {
@@ -16,13 +15,10 @@ document.addEventListener('DOMContentLoaded', syncCatalogControls);
 mobileShelf.addEventListener('change', syncCatalogControls);
 
 document.addEventListener('turbo:before-cache', () => {
-  const results = document.querySelector('.book-results');
-  if (results) sessionStorage.setItem(shelfScrollKey(), String(results.scrollTop));
+  saveBookList();
 });
 
 document.addEventListener('turbo:load', () => {
   syncCatalogControls();
-  const results = document.querySelector('.book-results');
-  const saved = results && sessionStorage.getItem(shelfScrollKey());
-  if (saved) requestAnimationFrame(() => { results.scrollTop = Number(saved) || 0; });
+  initBookList();
 });

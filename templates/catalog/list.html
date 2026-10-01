@@ -22,19 +22,9 @@
     </form>
     <a class="mobile-export" href="{% url 'export_csv' %}" data-turbo="false">导出全部 CSV ↗</a>
   </details>
-  <div class="book-results" role="region" aria-label="书架目录" tabindex="0">
+  <div class="book-results" role="region" aria-label="书架目录" tabindex="0" data-page="{{ page.number }}" data-total="{{ page.paginator.count }}" {% if page.has_next %}data-next-page="{{ page.next_page_number }}"{% endif %}>
   {% if page.object_list %}
-  <div class="book-grid">{% for copy in page %}
-    <a class="book-card" href="{% url 'book_detail' copy.edition.pk %}">
-      <div class="book-cover">{% if copy.edition.cover_url %}<img src="{{ copy.edition.cover_url }}" alt="{{ copy.edition.title|default:'图书' }}封面" loading="lazy" onerror="this.hidden=true">{% else %}<span>▥</span>{% endif %}</div>
-      <div class="book-info">
-        <div class="book-card-tags">{% for item in copy.edition.tags.all %}{% if forloop.counter0 < 3 %}<span>{{ item.name }}</span>{% elif forloop.counter0 == 3 %}<span>+{{ copy.edition.tags.count|add:'-3' }}</span>{% endif %}{% empty %}<span>未加标签</span>{% endfor %}</div>
-        <h3>{{ copy.edition.title|default:'待补充书名' }}</h3>
-        <p>{% if copy.edition.title %}{{ copy.edition.author|default:'作者未录入' }}{% else %}ISBN {{ copy.edition.isbn }}{% endif %}</p>
-        <div class="book-meta"><span>{{ copy.get_status_display }}</span><span>{{ copy.location|default:'位置未录入' }}</span></div>
-      </div>
-    </a>
-  {% endfor %}</div>
+  <div class="book-grid">{% include 'catalog/_book_cards.html' %}</div>
   {% else %}
   <div class="empty-state"><div>▥</div><h3>{% if query or selected_tag or selected_status %}没有找到符合条件的书{% else %}书架还是空的{% endif %}</h3><p>{% if query or selected_tag or selected_status %}试试调整搜索词或筛选条件。{% else %}从扫描第一本书的 ISBN 开始。{% endif %}</p><a class="button primary" href="{% url 'book_new' %}">＋ 录入新书</a></div>
   {% endif %}
