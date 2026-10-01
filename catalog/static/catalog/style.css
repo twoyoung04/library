@@ -16,7 +16,7 @@
 .scan-history li span{overflow-wrap:anywhere}.scan-history a{flex:none;color:#35754b;font-weight:700}
 @media(max-width:760px){.scan-options,.scan-feedback,.scan-history{margin-left:0}}
 .turbo-progress-bar{height:3px;background:#477753;box-shadow:0 1px 6px #18312a40;z-index:30}
-.book-card-tags{display:flex;gap:4px;overflow:hidden;margin:2px 0 8px}.book-card-tags span{max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:4px;background:#eaf3e8;color:#4f875b;padding:3px 6px;font-size:10px}.tag-row .tag:hover{background:#e2ede0;color:#356744}
+.book-card-tags{display:flex;gap:4px;overflow:hidden;margin:2px 0 2px}.book-card-tags span{max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:4px;background:#eaf3e8;color:#4f875b;padding:3px 6px;font-size:10px}.tag-row .tag:hover{background:#e2ede0;color:#356744}
 
 /* Keep the application frame still while its content scrolls. */
 .app-html,.app-body{height:100%;overflow:hidden}

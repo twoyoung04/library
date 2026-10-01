@@ -2,9 +2,9 @@
 <a class="book-card" data-copy-id="{{ copy.pk }}" href="{% url 'book_detail' copy.edition.pk %}">
   <div class="book-cover">{% if copy.edition.cover_url %}<img src="{{ copy.edition.cover_url }}" alt="{{ copy.edition.title|default:'图书' }}封面" loading="lazy" onerror="this.hidden=true">{% else %}<span>▥</span>{% endif %}</div>
   <div class="book-info">
-    <div class="book-card-tags">{% for item in copy.edition.tags.all %}{% if forloop.counter0 < 3 %}<span>{{ item.name }}</span>{% elif forloop.counter0 == 3 %}<span>+{{ copy.edition.tags.count|add:'-3' }}</span>{% endif %}{% empty %}<span>未加标签</span>{% endfor %}</div>
     <h3>{{ copy.edition.title|default:'待补充书名' }}</h3>
     <p>{% if copy.edition.title %}{{ copy.edition.author|default:'作者未录入' }}{% else %}ISBN {{ copy.edition.isbn }}{% endif %}</p>
+    <div class="book-card-tags">{% for item in copy.edition.tags.all %}{% if forloop.counter0 < 3 %}<span>{{ item.name }}</span>{% elif forloop.counter0 == 3 %}<span>+{{ copy.edition.tags.count|add:'-3' }}</span>{% endif %}{% empty %}<span>未加标签</span>{% endfor %}</div>
     <div class="book-meta"><span>{{ copy.get_status_display }}</span><span>{{ copy.location|default:'位置未录入' }}</span></div>
   </div>
 </a>
