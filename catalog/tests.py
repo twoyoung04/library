@@ -12,7 +12,7 @@ from django.urls import reverse
 from .isbn import normalize_isbn
 from .lookup import (lookup_book, lookup_cdclib, lookup_cp, lookup_douban, lookup_juhe,
                      lookup_neodb, lookup_showapi, lookup_wuming)
-from .models import Category, Copy, Edition
+from .models import Copy, Edition, Tag
 
 
 class LoginCsrfTests(TestCase):
@@ -69,7 +69,7 @@ class LibraryFlowTests(TestCase):
         self.assertEqual(response.context['read_count'], 5)
         self.assertEqual(response.context['page'].paginator.count, 30)
         self.assertEqual(len(response.context['page'].object_list), 24)
-        self.assertLessEqual(len(queries), 6)
+        self.assertLessEqual(len(queries), 7)
 
     def test_duplicate_isbn_adds_copy_without_overwriting_edition(self):
         url = reverse('book_new')
@@ -202,13 +202,80 @@ class LibraryFlowTests(TestCase):
         self.assertEqual(Edition.objects.count(), 1)
         self.assertEqual(set(Copy.objects.values_list('location', flat=True)), {'A1', 'B2'})
 
-    def test_category_filter_includes_child(self):
-        parent = Category.objects.create(name='文学')
-        child = Category.objects.create(name='小说', parent=parent)
-        book = Edition.objects.create(title='A book', category=child)
+    def test_tag_filter_finds_book_with_multiple_tags(self):
+        literary = Tag.objects.create(name='文学')
+        novel = Tag.objects.create(name='小说')
+        book = Edition.objects.create(title='A book')
+        book.tags.add(literary, novel)
         Copy.objects.create(edition=book)
-        response = self.client.get(reverse('book_list'), {'category': parent.pk})
+        response = self.client.get(reverse('book_list'), {'tag': literary.pk})
         self.assertContains(response, 'A book')
+        self.assertContains(response, '小说')
+
+    def test_manual_entry_accepts_any_number_of_tags(self):
+        names = [f'标签{number}' for number in range(20)]
+        response = self.client.post(reverse('book_new'), {
+            'isbn': '9780140328721', 'title': '多标签图书', 'status': 'unread',
+            'tags_text': '，'.join([*names, names[0]]),
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(set(Edition.objects.get().tags.values_list('name', flat=True)), set(names))
+        self.assertContains(self.client.get(reverse('book_list')), '+17')
+
+    def test_edit_replaces_book_tags(self):
+        book = Edition.objects.create(title='A book')
+        book.tags.add(Tag.objects.create(name='旧标签'))
+        response = self.client.post(reverse('book_edit', args=[book.pk]), {
+            'title': 'A book', 'tags_text': '新标签一\n新标签二',
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(set(book.tags.values_list('name', flat=True)),
+                         {'新标签一', '新标签二'})
+
+    def test_new_copy_adds_tags_without_removing_existing_ones(self):
+        book = Edition.objects.create(isbn='9780140328721', title='已有图书')
+        book.tags.add(Tag.objects.create(name='原标签'))
+        response = self.client.post(reverse('book_new'), {
+            'isbn': '9780140328721', 'title': '已有图书', 'status': 'unread',
+            'tags_text': '新标签',
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(set(book.tags.values_list('name', flat=True)), {'原标签', '新标签'})
+
+    def test_scan_save_applies_tags(self):
+        with patch('catalog.views._book_metadata', return_value={}):
+            response = self.client.post(reverse('scan_save'), {
+                'isbn': '9787100202169', 'status': 'unread',
+                'tags_text': '待整理，历史',
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(set(Edition.objects.get().tags.values_list('name', flat=True)),
+                         {'待整理', '历史'})
+
+    def test_tags_manage_create_and_delete(self):
+        response = self.client.post(reverse('tags'), {'name': '待整理'})
+        self.assertEqual(response.status_code, 302)
+        tag = Tag.objects.get(name='待整理')
+        book = Edition.objects.create(title='A book')
+        book.tags.add(tag)
+        Copy.objects.create(edition=book)
+        self.assertContains(self.client.get(reverse('tags')), '1 个版本')
+        self.assertRedirects(self.client.get(reverse('categories')), reverse('tags'))
+        self.assertEqual(self.client.post(reverse('tag_delete', args=[tag.pk])).status_code, 302)
+        self.assertFalse(Tag.objects.filter(pk=tag.pk).exists())
+        self.assertTrue(Edition.objects.filter(pk=book.pk).exists())
+
+    def test_legacy_csv_category_imports_as_tag(self):
+        csv_data = 'ISBN,书名,分类,标签\n9780140328721,旧版图书,文学,经典、小说\n'.encode()
+        response = self.client.post(reverse('import_csv'), {
+            'file': SimpleUploadedFile('books.csv', csv_data, content_type='text/csv')
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(set(Edition.objects.get().tags.values_list('name', flat=True)),
+                         {'文学', '经典', '小说'})
+        exported = self.client.get(reverse('export_csv')).content.decode('utf-8-sig')
+        self.assertIn('标签', exported.splitlines()[0])
+        self.assertNotIn('分类', exported.splitlines()[0])
 
     def test_pages_require_login(self):
         self.client.logout()

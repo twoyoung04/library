@@ -1,22 +1,8 @@
 from django.db import models
 
 
-class Category(models.Model):
-    name = models.CharField('名称', max_length=80, unique=True)
-    parent = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True,
-                               related_name='children', verbose_name='上级分类')
-
-    class Meta:
-        ordering = ['name']
-        verbose_name = '分类'
-        verbose_name_plural = '分类'
-
-    def __str__(self):
-        return self.name
-
-
 class Tag(models.Model):
-    name = models.CharField('名称', max_length=50, unique=True)
+    name = models.CharField('名称', max_length=80, unique=True)
 
     class Meta:
         ordering = ['name']
@@ -34,8 +20,6 @@ class Edition(models.Model):
     publisher = models.CharField('出版社', max_length=200, blank=True)
     published_year = models.PositiveSmallIntegerField('出版年', null=True, blank=True)
     cover_url = models.URLField('封面链接', max_length=1000, blank=True)
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True,
-                                 related_name='editions', verbose_name='分类')
     tags = models.ManyToManyField(Tag, blank=True, related_name='editions', verbose_name='标签')
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     updated_at = models.DateTimeField('更新时间', auto_now=True)

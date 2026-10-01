@@ -3,11 +3,30 @@
 {% block content %}
 <header class="page-header"><div><p class="eyebrow">YOUR COLLECTION / 个人藏书</p><h1>每一本，都在这里。</h1><p class="subhead">随时找到你想读的那一本。</p></div><a class="button primary header-action" href="{% url 'book_new' %}">＋ 录入新书</a></header>
 <section class="stats" aria-label="藏书统计"><div><strong>{{ total_copies }}</strong><span>藏书总册数</span></div><div><strong>{{ total_editions }}</strong><span>不同版本</span></div><div><strong>{{ read_count }}</strong><span>已读完</span></div></section>
-<section class="collection-panel"><div class="section-heading"><div><p class="eyebrow">COLLECTION</p><h2>书架目录</h2></div><span class="count-label">当前结果 {{ page.paginator.count }} 册</span></div>
-<form class="filters" method="get"><label class="search-field"><span>⌕</span><input type="search" name="q" value="{{ query }}" placeholder="搜索书名、作者、ISBN、标签或位置"></label><select name="category" aria-label="分类"><option value="">全部分类</option>{% for item in categories %}<option value="{{ item.pk }}" {% if selected_category == item.pk|stringformat:'s' %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select><select name="status" aria-label="阅读状态"><option value="">全部状态</option>{% for value,label in statuses %}<option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><button class="button secondary" type="submit">筛选</button></form>
-{% if page.object_list %}<div class="book-grid">{% for copy in page %}<a class="book-card" href="{% url 'book_detail' copy.edition.pk %}"><div class="book-cover">{% if copy.edition.cover_url %}<img src="{{ copy.edition.cover_url }}" alt="{{ copy.edition.title|default:'图书' }}封面" loading="lazy" onerror="this.hidden=true">{% else %}<span>▥</span>{% endif %}</div><div class="book-info"><span class="book-category">{{ copy.edition.category.name|default:'未分类' }}</span><h3>{{ copy.edition.title|default:'待补充书名' }}</h3><p>{% if copy.edition.title %}{{ copy.edition.author|default:'作者未录入' }}{% else %}ISBN {{ copy.edition.isbn }}{% endif %}</p><div class="book-meta"><span>{{ copy.get_status_display }}</span><span>{{ copy.location|default:'位置未录入' }}</span></div></div></a>{% endfor %}</div>
-{% else %}<div class="empty-state"><div>▥</div><h3>{% if query or selected_category or selected_status %}没有找到符合条件的书{% else %}书架还是空的{% endif %}</h3><p>{% if query or selected_category or selected_status %}试试调整搜索词或筛选条件。{% else %}从扫描第一本书的 ISBN 开始。{% endif %}</p><a class="button primary" href="{% url 'book_new' %}">＋ 录入新书</a></div>{% endif %}
-{% if page.paginator.num_pages > 1 %}<div class="pagination">{% if page.has_previous %}<a href="?q={{ query|urlencode }}&category={{ selected_category }}&status={{ selected_status }}&page={{ page.previous_page_number }}">← 上一页</a>{% endif %}<span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>{% if page.has_next %}<a href="?q={{ query|urlencode }}&category={{ selected_category }}&status={{ selected_status }}&page={{ page.next_page_number }}">下一页 →</a>{% endif %}</div>{% endif %}
+<section class="collection-panel">
+  <div class="section-heading"><div><p class="eyebrow">COLLECTION</p><h2>书架目录</h2></div><span class="count-label">当前结果 {{ page.paginator.count }} 册</span></div>
+  <form class="filters" method="get">
+    <label class="search-field"><span>⌕</span><input type="search" name="q" value="{{ query }}" placeholder="搜索书名、作者、ISBN、标签或位置"></label>
+    <select name="tag" aria-label="标签"><option value="">全部标签</option>{% for item in tags %}<option value="{{ item.pk }}" {% if selected_tag == item.pk|stringformat:'s' %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select>
+    <select name="status" aria-label="阅读状态"><option value="">全部状态</option>{% for value,label in statuses %}<option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <button class="button secondary" type="submit">筛选</button>
+  </form>
+  {% if page.object_list %}
+  <div class="book-grid">{% for copy in page %}
+    <a class="book-card" href="{% url 'book_detail' copy.edition.pk %}">
+      <div class="book-cover">{% if copy.edition.cover_url %}<img src="{{ copy.edition.cover_url }}" alt="{{ copy.edition.title|default:'图书' }}封面" loading="lazy" onerror="this.hidden=true">{% else %}<span>▥</span>{% endif %}</div>
+      <div class="book-info">
+        <div class="book-card-tags">{% for item in copy.edition.tags.all %}{% if forloop.counter0 < 3 %}<span>{{ item.name }}</span>{% elif forloop.counter0 == 3 %}<span>+{{ copy.edition.tags.count|add:'-3' }}</span>{% endif %}{% empty %}<span>未加标签</span>{% endfor %}</div>
+        <h3>{{ copy.edition.title|default:'待补充书名' }}</h3>
+        <p>{% if copy.edition.title %}{{ copy.edition.author|default:'作者未录入' }}{% else %}ISBN {{ copy.edition.isbn }}{% endif %}</p>
+        <div class="book-meta"><span>{{ copy.get_status_display }}</span><span>{{ copy.location|default:'位置未录入' }}</span></div>
+      </div>
+    </a>
+  {% endfor %}</div>
+  {% else %}
+  <div class="empty-state"><div>▥</div><h3>{% if query or selected_tag or selected_status %}没有找到符合条件的书{% else %}书架还是空的{% endif %}</h3><p>{% if query or selected_tag or selected_status %}试试调整搜索词或筛选条件。{% else %}从扫描第一本书的 ISBN 开始。{% endif %}</p><a class="button primary" href="{% url 'book_new' %}">＋ 录入新书</a></div>
+  {% endif %}
+  {% if page.paginator.num_pages > 1 %}<div class="pagination">{% if page.has_previous %}<a href="?q={{ query|urlencode }}&tag={{ selected_tag }}&status={{ selected_status }}&page={{ page.previous_page_number }}">← 上一页</a>{% endif %}<span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>{% if page.has_next %}<a href="?q={{ query|urlencode }}&tag={{ selected_tag }}&status={{ selected_status }}&page={{ page.next_page_number }}">下一页 →</a>{% endif %}</div>{% endif %}
 </section>
 <div class="list-footer"><span>数据属于你，随时可以带走。</span><a href="{% url 'export_csv' %}" data-turbo="false">导出全部 CSV ↗</a></div>
 {% endblock %}

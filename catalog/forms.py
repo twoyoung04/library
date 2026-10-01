@@ -3,18 +3,25 @@ import re
 from django import forms
 
 from .isbn import normalize_isbn
-from .models import Category, Copy, Edition
+from .models import Copy, Edition, Tag
+
+
+def parse_tag_names(value):
+    names = list(dict.fromkeys(name.strip() for name in re.split(r'[,，、\n]', value or '') if name.strip()))
+    if any(len(name) > 80 for name in names):
+        raise ValueError('每个标签最多 80 字。')
+    return names
 
 
 class EditionForm(forms.ModelForm):
     title = forms.CharField(label='书名', max_length=300)
     tags_text = forms.CharField(label='标签', required=False,
-                                help_text='多个标签用逗号隔开', max_length=400)
+                                help_text='用逗号或换行分隔，可添加任意数量；新标签会自动创建。',
+                                widget=forms.Textarea(attrs={'rows': 2}))
 
     class Meta:
         model = Edition
-        fields = ['isbn', 'title', 'author', 'publisher', 'published_year',
-                  'cover_url', 'category']
+        fields = ['isbn', 'title', 'author', 'publisher', 'published_year', 'cover_url']
         widgets = {
             'isbn': forms.TextInput(attrs={'inputmode': 'text', 'autocomplete': 'off'}),
             'published_year': forms.NumberInput(attrs={'min': '1000', 'max': '2100'}),
@@ -30,11 +37,10 @@ class EditionForm(forms.ModelForm):
             raise forms.ValidationError(str(exc)) from exc
 
     def clean_tags_text(self):
-        value = self.cleaned_data['tags_text']
-        names = [name.strip() for name in re.split(r'[,，、]', value) if name.strip()]
-        if len(names) > 12 or any(len(name) > 50 for name in names):
-            raise forms.ValidationError('最多 12 个标签，每个不超过 50 字')
-        return names
+        try:
+            return parse_tag_names(self.cleaned_data['tags_text'])
+        except ValueError as exc:
+            raise forms.ValidationError(str(exc)) from exc
 
 
 class CopyForm(forms.ModelForm):
@@ -47,13 +53,7 @@ class CopyForm(forms.ModelForm):
         }
 
 
-class CategoryForm(forms.ModelForm):
+class TagForm(forms.ModelForm):
     class Meta:
-        model = Category
-        fields = ['name', 'parent']
-
-    def clean_parent(self):
-        parent = self.cleaned_data.get('parent')
-        if self.instance.pk and parent and (parent.pk == self.instance.pk or parent.parent_id == self.instance.pk):
-            raise forms.ValidationError('不能把分类放到自身或子分类下面')
-        return parent
+        model = Tag
+        fields = ['name']

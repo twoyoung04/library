@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Category, Copy, Edition, Tag
+from .models import Copy, Edition, Tag
 
 
 class CopyInline(admin.TabularInline):
@@ -10,8 +10,8 @@ class CopyInline(admin.TabularInline):
 
 @admin.register(Edition)
 class EditionAdmin(admin.ModelAdmin):
-    list_display = ['title', 'author', 'isbn', 'category', 'copy_count']
-    list_filter = ['category', 'tags']
+    list_display = ['title', 'author', 'isbn', 'copy_count']
+    list_filter = ['tags']
     search_fields = ['title', 'author', 'isbn', 'publisher']
     inlines = [CopyInline]
 
@@ -20,5 +20,4 @@ class EditionAdmin(admin.ModelAdmin):
         return obj.copies.count()
 
 
-admin.site.register(Category)
 admin.site.register(Tag)

@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}标签管理{% endblock %}
+{% block content %}
+<header class="page-header compact"><div><p class="eyebrow">ORGANIZE YOUR SHELVES</p><h1>标签管理</h1><p class="subhead">一本书可以有多个标签，按主题、用途或你喜欢的方式整理。</p></div></header>
+<div class="category-layout">
+  <section class="collection-panel">
+    <div class="section-heading"><div><p class="eyebrow">TAGS</p><h2>已有标签</h2></div><span class="count-label">{{ items|length }} 个</span></div>
+    {% if items %}<div class="category-list">{% for item in items %}
+      <div class="category-row"><div><strong><a href="{% url 'book_list' %}?tag={{ item.pk }}">{{ item.name }}</a></strong><p>{{ item.book_count }} 个版本</p></div><form action="{% url 'tag_delete' item.pk %}" method="post" data-turbo="false" onsubmit="return confirm('确定删除这个标签吗？图书会保留。');">{% csrf_token %}<button type="submit" class="danger-link">删除</button></form></div>
+    {% endfor %}</div>{% else %}<div class="empty-state small"><h3>尚无标签</h3><p>可以新建标签，也可以在录入图书时直接填写。</p></div>{% endif %}
+  </section>
+  <section class="small-panel"><h2>新建标签</h2><form method="post" data-turbo="false">{% csrf_token %}{% for field in form %}<div class="field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}<button type="submit" class="button primary full">添加标签</button></form></section>
+</div>
+{% endblock %}

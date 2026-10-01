@@ -16,24 +16,29 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 from django.utils.functional import cached_property
 
-from .forms import CategoryForm, CopyForm, EditionForm
+from .forms import CopyForm, EditionForm, TagForm, parse_tag_names
 from .isbn import normalize_isbn
 from .lookup import lookup_book
-from .models import Category, Copy, Edition, Tag
+from .models import Copy, Edition, Tag
+
+
+def _tag_objects(names):
+    names = list(dict.fromkeys(names))
+    if not names:
+        return []
+    existing = set(Tag.objects.filter(name__in=names).values_list('name', flat=True))
+    Tag.objects.bulk_create([Tag(name=name) for name in names if name not in existing],
+                            ignore_conflicts=True)
+    return list(Tag.objects.filter(name__in=names))
 
 
 def _save_tags(edition, names):
-    edition.tags.set([Tag.objects.get_or_create(name=name)[0] for name in names])
+    edition.tags.set(_tag_objects(names))
 
 
-def _descendant_ids(category_id):
-    ids = {category_id}
-    pending = [category_id]
-    while pending:
-        children = list(Category.objects.filter(parent_id__in=pending).values_list('id', flat=True))
-        pending = [pk for pk in children if pk not in ids]
-        ids.update(pending)
-    return ids
+def _add_tags(edition, names):
+    if names:
+        edition.tags.add(*_tag_objects(names))
 
 
 def _book_metadata(isbn):
@@ -70,11 +75,11 @@ class KnownCountPaginator(Paginator):
 
 @login_required
 def book_list(request):
-    copies = Copy.objects.select_related('edition', 'edition__category')
+    copies = Copy.objects.select_related('edition').prefetch_related('edition__tags')
     query = request.GET.get('q', '').strip()[:100]
-    category = request.GET.get('category', '')
+    tag = request.GET.get('tag', '')
     status = request.GET.get('status', '')
-    categories = list(Category.objects.all())
+    tags = list(Tag.objects.all())
     stats = Copy.objects.aggregate(
         total_copies=Count('pk'),
         read_count=Count('pk', filter=Q(status=Copy.Status.READ)),
@@ -86,17 +91,17 @@ def book_list(request):
                                Q(edition__publisher__icontains=query) |
                                Q(location__icontains=query) |
                                Q(edition__tags__name__icontains=query)).distinct()
-    valid_category = category.isdigit() and int(category) in {item.pk for item in categories}
-    if valid_category:
-        copies = copies.filter(edition__category_id__in=_descendant_ids(int(category)))
+    valid_tag = tag.isdigit() and int(tag) in {item.pk for item in tags}
+    if valid_tag:
+        copies = copies.filter(edition__tags__pk=int(tag))
     valid_status = status in Copy.Status.values
     if valid_status:
         copies = copies.filter(status=status)
-    known_count = stats['total_copies'] if not (query or valid_category or valid_status) else None
+    known_count = stats['total_copies'] if not (query or valid_tag or valid_status) else None
     page = KnownCountPaginator(copies, 24, known_count=known_count).get_page(request.GET.get('page'))
     return render(request, 'catalog/list.html', {
-        'page': page, 'query': query, 'selected_category': category,
-        'selected_status': status, 'categories': categories,
+        'page': page, 'query': query, 'selected_tag': tag,
+        'selected_status': status, 'tags': tags,
         'statuses': Copy.Status.choices, 'total_copies': stats['total_copies'],
         'total_editions': Edition.objects.count(),
         'read_count': stats['read_count'],
@@ -129,6 +134,7 @@ def book_new(request):
                                 updates.append(field)
                         if updates:
                             edition.save(update_fields=updates + ['updated_at'])
+                    _add_tags(edition, edition_form.cleaned_data['tags_text'])
                     messages.info(request, '这个 ISBN 已存在，已为它新增一册。')
                 else:
                     edition = edition_form.save()
@@ -156,7 +162,7 @@ def book_new(request):
 
 @login_required
 def book_detail(request, pk):
-    edition = get_object_or_404(Edition.objects.select_related('category').prefetch_related('tags', 'copies'), pk=pk)
+    edition = get_object_or_404(Edition.objects.prefetch_related('tags', 'copies'), pk=pk)
     return render(request, 'catalog/detail.html', {'edition': edition})
 
 
@@ -206,23 +212,29 @@ def copy_delete(request, pk):
 
 
 @login_required
-def categories(request):
-    form = CategoryForm(request.POST or None)
+def tags(request):
+    form = TagForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
         form.save()
-        messages.success(request, '分类已添加。')
-        return redirect('categories')
-    items = Category.objects.select_related('parent').annotate(book_count=Count('editions', distinct=True))
-    return render(request, 'catalog/categories.html', {'form': form, 'items': items})
+        messages.success(request, '标签已添加。')
+        return redirect('tags')
+    items = list(Tag.objects.annotate(book_count=Count('editions', distinct=True)))
+    return render(request, 'catalog/tags.html', {'form': form, 'items': items})
 
 
 @login_required
 @require_POST
-def category_delete(request, pk):
-    category = get_object_or_404(Category, pk=pk)
-    category.delete()
-    messages.success(request, '分类已删除，相关图书保留。')
-    return redirect('categories')
+def tag_delete(request, pk):
+    tag = get_object_or_404(Tag, pk=pk)
+    tag.delete()
+    messages.success(request, '标签已删除，图书仍保留。')
+    return redirect('tags')
+
+
+@login_required
+@require_GET
+def legacy_categories(request):
+    return redirect('tags')
 
 
 @login_required
@@ -256,6 +268,10 @@ def scan_save(request):
     if not copy_form.is_valid():
         return JsonResponse({'error': '请检查这册书的位置、状态或日期。',
                              'fields': copy_form.errors.get_json_data()}, status=400)
+    try:
+        tag_names = parse_tag_names(request.POST.get('tags_text', ''))
+    except ValueError as exc:
+        return JsonResponse({'error': str(exc)}, status=400)
 
     existing = Edition.objects.filter(isbn=isbn).first()
     metadata = _book_metadata(isbn) if not existing or not existing.title else {}
@@ -270,6 +286,7 @@ def scan_save(request):
                     updates.append(field)
             if updates:
                 edition.save(update_fields=updates + ['updated_at'])
+        _add_tags(edition, tag_names)
         copy = copy_form.save(commit=False)
         copy.edition = edition
         copy.save()
@@ -288,7 +305,7 @@ def scan_save(request):
 
 
 CSV_FIELDS = ['ISBN', '书名', '作者', '出版社', '出版年', '封面链接',
-              '分类', '标签', '存放位置', '阅读状态', '入藏日期', '备注']
+              '标签', '存放位置', '阅读状态', '入藏日期', '备注']
 
 
 @login_required
@@ -299,12 +316,11 @@ def export_csv(request):
     response.write('\ufeff')
     writer = csv.writer(response)
     writer.writerow(CSV_FIELDS)
-    for copy in Copy.objects.select_related('edition', 'edition__category').prefetch_related('edition__tags').iterator(chunk_size=500):
+    for copy in Copy.objects.select_related('edition').prefetch_related('edition__tags').iterator(chunk_size=500):
         book = copy.edition
         writer.writerow([
             book.isbn or '', book.title, book.author, book.publisher,
             book.published_year or '', book.cover_url,
-            book.category.name if book.category else '',
             '、'.join(book.tags.values_list('name', flat=True)), copy.location,
             copy.status, copy.acquired_on or '', copy.notes,
         ])
@@ -356,17 +372,23 @@ def _import_row(row, number):
     status = (row.get('阅读状态') or Copy.Status.UNREAD).strip()
     if status not in Copy.Status.values:
         raise ValueError(f'第 {number} 行阅读状态无效。')
-    category_name = (row.get('分类') or '').strip()
-    category = Category.objects.get_or_create(name=category_name)[0] if category_name else None
+    try:
+        names = parse_tag_names(row.get('标签') or '')
+        legacy_category = (row.get('分类') or '').strip()
+        if legacy_category:
+            if len(legacy_category) > 80:
+                raise ValueError('分类名称超过 80 字。')
+            names = list(dict.fromkeys([*names, legacy_category]))
+    except ValueError as exc:
+        raise ValueError(f'第 {number} 行标签无效：{exc}') from exc
     edition = Edition.objects.filter(isbn=isbn).first() if isbn else None
     if not edition:
         edition = Edition.objects.create(
             isbn=isbn, title=title[:300], author=(row.get('作者') or '').strip()[:300],
             publisher=(row.get('出版社') or '').strip()[:200],
             published_year=int(year_raw) if year_raw else None,
-            cover_url=(row.get('封面链接') or '').strip()[:1000], category=category,
+            cover_url=(row.get('封面链接') or '').strip()[:1000],
         )
-        names = [(name.strip()) for name in (row.get('标签') or '').replace('，', '、').split('、') if name.strip()]
-        _save_tags(edition, names[:12])
+    _add_tags(edition, names)
     Copy.objects.create(edition=edition, location=(row.get('存放位置') or '').strip()[:120],
                         status=status, acquired_on=acquired, notes=(row.get('备注') or '').strip())
