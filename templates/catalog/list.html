@@ -3,7 +3,7 @@
 {% block body_class %}collection-page{% endblock %}
 {% block content %}
 <header class="page-header collection-top">
-  <div><p class="eyebrow">YOUR COLLECTION / 个人藏书</p><h1>全部藏书</h1></div>
+  <div><h1>全部藏书</h1></div>
   <div class="collection-actions">
     <a class="button secondary" href="{% url 'export_csv' %}" data-turbo="false">导出 CSV ↗</a>
     <a class="button primary" href="{% url 'book_new' %}">＋ 录入新书</a>

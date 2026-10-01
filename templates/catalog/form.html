@@ -1,7 +1,7 @@
 {% extends 'base.html' %}{% load static %}
 {% block title %}{{ heading }}{% endblock %}
 {% block content %}
-<header class="page-header compact"><div><p class="eyebrow">{% if mode == 'new' %}ADD TO COLLECTION{% else %}EDIT BOOK{% endif %}</p><h1>{{ heading }}</h1><p class="subhead">{% if mode == 'new' %}扫描 ISBN，或自己填写图书信息。{% else %}修改这本书的共用版本信息。{% endif %}</p></div></header>
+<header class="page-header compact"><div><h1>{{ heading }}</h1><p class="subhead">{% if mode == 'new' %}扫描 ISBN，或自己填写图书信息。{% else %}修改这本书的共用版本信息。{% endif %}</p></div></header>
 <div class="form-layout"><div class="form-main">
 {% if mode == 'new' %}
 <section class="scan-card" id="scan-card" data-save-url="{% url 'scan_save' %}">
