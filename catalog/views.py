@@ -9,7 +9,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Case, Count, F, IntegerField, Q, When
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -73,12 +73,25 @@ class KnownCountPaginator(Paginator):
         return self.known_count if self.known_count is not None else self.object_list.count()
 
 
+BOOK_SORT_OPTIONS = (
+    ('added_desc', '录入时间：新到旧'),
+    ('added_asc', '录入时间：旧到新'),
+    ('title_asc', '书名：升序'),
+    ('title_desc', '书名：降序'),
+    ('year_desc', '出版年：新到旧'),
+    ('year_asc', '出版年：旧到新'),
+)
+
+
 @login_required
 def book_list(request):
     copies = Copy.objects.select_related('edition').prefetch_related('edition__tags')
     query = request.GET.get('q', '').strip()[:100]
     tag = request.GET.get('tag', '')
     status = request.GET.get('status', '')
+    sort = request.GET.get('sort', 'added_desc')
+    if sort not in dict(BOOK_SORT_OPTIONS):
+        sort = 'added_desc'
     tags = list(Tag.objects.all())
     total_copies = Copy.objects.count()
     if query:
@@ -94,11 +107,26 @@ def book_list(request):
     valid_status = status in Copy.Status.values
     if valid_status:
         copies = copies.filter(status=status)
+    if sort.startswith('title_'):
+        missing_title_last = Case(When(edition__title='', then=1), default=0,
+                                  output_field=IntegerField())
+        copies = copies.order_by(missing_title_last,
+                                 'edition__title' if sort == 'title_asc' else '-edition__title',
+                                 '-created_at', '-id')
+    elif sort.startswith('year_'):
+        year = F('edition__published_year')
+        copies = copies.order_by(year.asc(nulls_last=True) if sort == 'year_asc'
+                                 else year.desc(nulls_last=True), '-created_at', '-id')
+    elif sort == 'added_asc':
+        copies = copies.order_by('created_at', 'id')
+    else:
+        copies = copies.order_by('-created_at', '-id')
     known_count = total_copies if not (query or valid_tag or valid_status) else None
     page = KnownCountPaginator(copies, 24, known_count=known_count).get_page(request.GET.get('page'))
     return render(request, 'catalog/list.html', {
         'page': page, 'query': query, 'selected_tag': tag,
-        'selected_status': status, 'tags': tags,
+        'selected_status': status, 'selected_sort': sort, 'sort_options': BOOK_SORT_OPTIONS,
+        'tags': tags,
         'statuses': Copy.Status.choices, 'total_copies': total_copies,
     })
 

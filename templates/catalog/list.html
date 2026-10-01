@@ -15,7 +15,8 @@
     <label class="search-field"><span>⌕</span><input type="search" name="q" value="{{ query }}" placeholder="搜索书名、作者、ISBN、标签或位置"></label>
     <select name="tag" aria-label="标签"><option value="">全部标签</option>{% for item in tags %}<option value="{{ item.pk }}" {% if selected_tag == item.pk|stringformat:'s' %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select>
     <select name="status" aria-label="阅读状态"><option value="">全部状态</option>{% for value,label in statuses %}<option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
-    <button class="button secondary" type="submit">筛选</button>
+    <select name="sort" aria-label="排序方式">{% for value,label in sort_options %}<option value="{{ value }}" {% if selected_sort == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <button class="button secondary" type="submit">应用</button>
   </form>
   <div class="book-results" role="region" aria-label="书架目录" tabindex="0">
   {% if page.object_list %}
@@ -33,7 +34,7 @@
   {% else %}
   <div class="empty-state"><div>▥</div><h3>{% if query or selected_tag or selected_status %}没有找到符合条件的书{% else %}书架还是空的{% endif %}</h3><p>{% if query or selected_tag or selected_status %}试试调整搜索词或筛选条件。{% else %}从扫描第一本书的 ISBN 开始。{% endif %}</p><a class="button primary" href="{% url 'book_new' %}">＋ 录入新书</a></div>
   {% endif %}
-  {% if page.paginator.num_pages > 1 %}<div class="pagination">{% if page.has_previous %}<a href="?q={{ query|urlencode }}&tag={{ selected_tag }}&status={{ selected_status }}&page={{ page.previous_page_number }}">← 上一页</a>{% endif %}<span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>{% if page.has_next %}<a href="?q={{ query|urlencode }}&tag={{ selected_tag }}&status={{ selected_status }}&page={{ page.next_page_number }}">下一页 →</a>{% endif %}</div>{% endif %}
+  {% if page.paginator.num_pages > 1 %}<div class="pagination">{% if page.has_previous %}<a href="?q={{ query|urlencode }}&amp;tag={{ selected_tag }}&amp;status={{ selected_status }}&amp;sort={{ selected_sort }}&amp;page={{ page.previous_page_number }}">← 上一页</a>{% endif %}<span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>{% if page.has_next %}<a href="?q={{ query|urlencode }}&amp;tag={{ selected_tag }}&amp;status={{ selected_status }}&amp;sort={{ selected_sort }}&amp;page={{ page.next_page_number }}">下一页 →</a>{% endif %}</div>{% endif %}
   </div>
 </section>
 {% endblock %}

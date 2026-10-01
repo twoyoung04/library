@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -8,6 +9,7 @@ from django.test import TestCase
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 from .isbn import normalize_isbn
 from .lookup import (lookup_book, lookup_cdclib, lookup_cp, lookup_douban, lookup_juhe,
@@ -71,6 +73,49 @@ class LibraryFlowTests(TestCase):
         self.assertContains(response, 'class="book-results"')
         self.assertNotContains(response, 'class="stats"')
         self.assertLessEqual(len(queries), 7)
+
+    def test_book_list_sort_options_order_copies_and_keep_missing_metadata_last(self):
+        alpha = Edition.objects.create(title='Alpha', published_year=1999)
+        beta = Edition.objects.create(title='Beta', published_year=2020)
+        untitled = Edition.objects.create(title='')
+        alpha_copy = Copy.objects.create(edition=alpha)
+        beta_copy = Copy.objects.create(edition=beta)
+        untitled_copy = Copy.objects.create(edition=untitled)
+        for copy, year in ((alpha_copy, 2023), (beta_copy, 2022), (untitled_copy, 2024)):
+            Copy.objects.filter(pk=copy.pk).update(
+                created_at=timezone.make_aware(datetime(year, 1, 1, 12, 0)))
+
+        expected = {
+            'added_desc': [untitled_copy.pk, alpha_copy.pk, beta_copy.pk],
+            'added_asc': [beta_copy.pk, alpha_copy.pk, untitled_copy.pk],
+            'title_asc': [alpha_copy.pk, beta_copy.pk, untitled_copy.pk],
+            'title_desc': [beta_copy.pk, alpha_copy.pk, untitled_copy.pk],
+            'year_desc': [beta_copy.pk, alpha_copy.pk, untitled_copy.pk],
+            'year_asc': [alpha_copy.pk, beta_copy.pk, untitled_copy.pk],
+            'invalid': [untitled_copy.pk, alpha_copy.pk, beta_copy.pk],
+        }
+        for sort, copy_ids in expected.items():
+            with self.subTest(sort=sort):
+                response = self.client.get(reverse('book_list'), {'sort': sort})
+                self.assertEqual([copy.pk for copy in response.context['page']], copy_ids)
+
+    def test_book_list_pagination_preserves_sort_and_search(self):
+        edition = Edition.objects.create(title='Alpha')
+        Copy.objects.bulk_create([Copy(edition=edition) for _ in range(25)])
+        response = self.client.get(reverse('book_list'), {'q': 'Alpha', 'sort': 'title_asc'})
+        self.assertContains(response, 'sort=title_asc&amp;page=2')
+
+    def test_book_detail_shows_entry_time_for_each_copy(self):
+        edition = Edition.objects.create(title='Alpha')
+        dates = [timezone.make_aware(datetime(2024, 3, 4, 10, 30)),
+                 timezone.make_aware(datetime(2025, 5, 6, 14, 45))]
+        for created_at in dates:
+            copy = Copy.objects.create(edition=edition)
+            Copy.objects.filter(pk=copy.pk).update(created_at=created_at)
+        response = self.client.get(reverse('book_detail', args=[edition.pk]))
+        self.assertContains(response, '录入时间', count=2)
+        for created_at in dates:
+            self.assertContains(response, created_at.strftime('%Y-%m-%d %H:%M'))
 
     def test_duplicate_isbn_adds_copy_without_overwriting_edition(self):
         url = reverse('book_new')
