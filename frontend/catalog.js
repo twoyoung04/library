@@ -21,23 +21,20 @@ class VirtualBookList {
     this.failures = 0;
     this.destroyed = false;
     this.abort = new AbortController();
-    this.renderedRange = '';
+    this.windowStart = 0;
+    this.windowEnd = this.firstPage.length;
     this.frame = 0;
     this.retryTimer = 0;
 
-    this.topSpacer = document.createElement('div');
-    this.bottomSpacer = document.createElement('div');
-    this.topSpacer.className = 'book-spacer';
-    this.bottomSpacer.className = 'book-spacer';
-    this.topSpacer.setAttribute('aria-hidden', 'true');
-    this.bottomSpacer.setAttribute('aria-hidden', 'true');
+    this.canvas = document.createElement('div');
+    this.canvas.className = 'book-virtual-canvas';
     this.status = document.createElement('div');
     this.status.className = 'catalog-scroll-status';
     this.status.setAttribute('role', 'status');
     this.status.setAttribute('aria-live', 'polite');
-    this.grid.before(this.topSpacer);
-    this.grid.after(this.bottomSpacer);
-    this.bottomSpacer.after(this.status);
+    this.grid.before(this.canvas);
+    this.canvas.append(this.grid);
+    this.canvas.after(this.status);
     this.grid.classList.add('is-virtual');
     this.results.classList.add('is-enhanced');
 
@@ -53,13 +50,10 @@ class VirtualBookList {
     this.resizeObserver = new ResizeObserver(this.onResize);
     this.resizeObserver.observe(this.results);
     this.measure();
+    this.canvas.style.height = `${this.totalHeight()}px`;
+    this.results.scrollTop = this.restoreTop;
     this.render();
-    requestAnimationFrame(() => {
-      if (this.destroyed) return;
-      this.results.scrollTop = this.restoreTop;
-      this.render();
-      this.maybeLoad();
-    });
+    this.maybeLoad();
   }
 
   measure() {
@@ -98,7 +92,50 @@ class VirtualBookList {
     this.maybeLoad();
   }
 
+  totalHeight() {
+    const rows = Math.ceil(this.cards.length / this.columns);
+    return rows ? rows * this.stride - this.gap : 0;
+  }
+
+  setStatus(message) {
+    if (this.status.textContent !== message) this.status.textContent = message;
+  }
+
+  createCard(index) {
+    const template = document.createElement('template');
+    template.innerHTML = this.cards[index];
+    const card = template.content.firstElementChild;
+    card.dataset.index = String(index);
+    return card;
+  }
+
+  updateWindow(start, end) {
+    const oldStart = this.windowStart;
+    const oldEnd = this.windowEnd;
+    if (start >= oldEnd || end <= oldStart) {
+      this.grid.replaceChildren(...Array.from({ length: end - start }, (_, offset) =>
+        this.createCard(start + offset)));
+    } else {
+      for (let index = oldStart; index < start; index++) this.grid.firstElementChild.remove();
+      for (let index = end; index < oldEnd; index++) this.grid.lastElementChild.remove();
+      if (start < oldStart) {
+        const before = document.createDocumentFragment();
+        for (let index = start; index < oldStart; index++) before.append(this.createCard(index));
+        this.grid.prepend(before);
+      }
+      if (end > oldEnd) {
+        const after = document.createDocumentFragment();
+        for (let index = oldEnd; index < end; index++) after.append(this.createCard(index));
+        this.grid.append(after);
+      }
+    }
+    this.windowStart = start;
+    this.windowEnd = end;
+  }
+
   render() {
+    const canvasHeight = `${this.totalHeight()}px`;
+    if (this.canvas.style.height !== canvasHeight) this.canvas.style.height = canvasHeight;
     const rows = Math.ceil(this.cards.length / this.columns);
     const viewport = this.results.clientHeight;
     const top = this.results.scrollTop;
@@ -107,27 +144,21 @@ class VirtualBookList {
     const endRow = Math.min(rows, Math.ceil((top + 3 * viewport) / this.stride));
     const start = startRow * this.columns;
     const end = Math.min(this.cards.length, endRow * this.columns);
-    const range = `${start}:${end}`;
-    if (range !== this.renderedRange) {
-      this.grid.innerHTML = this.cards.slice(start, end).join('');
-      Array.from(this.grid.children).forEach((card, offset) => {
-        card.dataset.index = String(start + offset);
-      });
-      this.renderedRange = range;
+    if (start !== this.windowStart || end !== this.windowEnd) this.updateWindow(start, end);
+    const gridTop = `${startRow * this.stride}px`;
+    if (this.grid.style.top !== gridTop) this.grid.style.top = gridTop;
+    if (this.results.dataset.loadedCount !== String(this.cards.length)) {
+      this.results.dataset.loadedCount = String(this.cards.length);
     }
-    this.topSpacer.style.height = `${startRow * this.stride}px`;
-    this.bottomSpacer.style.height = `${(rows - endRow) * this.stride}px`;
-    this.results.dataset.loadedCount = String(this.cards.length);
     if (!this.loading && !this.failures) {
-      this.status.textContent = this.nextPage ? '' : '已经到底了';
+      this.setStatus(this.nextPage ? '' : '已经到底了');
     }
   }
 
   maybeLoad() {
     if (!this.nextPage || this.loading || this.destroyed || this.failures >= 3
         || this.waitForUserScroll) return;
-    const totalHeight = Math.ceil(this.cards.length / this.columns) * this.stride - this.gap;
-    const remaining = totalHeight - this.results.scrollTop - this.results.clientHeight;
+    const remaining = this.totalHeight() - this.results.scrollTop - this.results.clientHeight;
     if (remaining <= this.results.clientHeight * 2) this.loadNext();
   }
 
@@ -135,7 +166,7 @@ class VirtualBookList {
     if (!this.nextPage || this.loading || this.destroyed) return false;
     const requestedPage = this.nextPage;
     this.loading = true;
-    this.status.textContent = '正在加载书目…';
+    this.setStatus('正在加载书目…');
     try {
       const url = new URL(location.href);
       url.searchParams.set('page', requestedPage);
@@ -159,14 +190,14 @@ class VirtualBookList {
       this.nextPage = numberOrNull(data.next_page);
       this.waitForUserScroll = true;
       this.failures = 0;
-      this.status.textContent = '';
+      this.setStatus('');
       this.render();
       return true;
     } catch (error) {
       if (this.destroyed || error.name === 'AbortError') return false;
       this.failures += 1;
-      this.status.textContent = this.failures >= 3
-        ? '书目加载失败，请刷新页面重试' : '书目加载失败，正在重试…';
+      this.setStatus(this.failures >= 3
+        ? '书目加载失败，请刷新页面重试' : '书目加载失败，正在重试…');
       if (this.failures < 3) {
         this.retryTimer = setTimeout(() => {
           this.retryTimer = 0;
@@ -227,10 +258,11 @@ class VirtualBookList {
     this.results.removeEventListener('keydown', this.onKeyDown);
     if (forCache) {
       this.grid.classList.remove('is-virtual');
+      this.grid.style.top = '';
+      this.canvas.before(this.grid);
       this.grid.innerHTML = this.firstPage.join('');
       this.results.classList.remove('is-enhanced');
-      this.topSpacer.remove();
-      this.bottomSpacer.remove();
+      this.canvas.remove();
       this.status.remove();
       this.results.scrollTop = 0;
     }
