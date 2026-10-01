@@ -9,7 +9,7 @@
 - 图书版本与实体副本分开管理；重复 ISBN 会新增副本
 - 书名、作者、ISBN、出版社、标签、位置搜索；标签及阅读状态筛选
 - 一本书可添加任意数量的标签；标签管理、阅读状态、入藏日期、备注
-- UTF-8 CSV 导入导出、本机 SQLite 备份、账号登录
+- UTF-8 CSV 导入导出、账号登录
 - 页面快速切换和返回缓存；慢请求显示顶部进度条
 
 ## 本机启动
@@ -21,17 +21,21 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 npm install
 npm run build
-.venv/bin/python manage.py migrate
-.venv/bin/python manage.py createsuperuser
 ```
 
-`npm run build` 会下载约 2 MB 的英文 OCR 数据，并生成页面导航、扫码及 OCR 静态资源。之后运行：
+`npm run build` 会下载约 2 MB 的英文 OCR 数据，并生成页面导航、扫码及 OCR 静态资源。在项目根目录创建不纳入 Git 的 `.env.local`，填入线上 Supabase 项目的 **Session pooler** 连接串（端口 `5432`）：
+
+```dotenv
+DATABASE_URL=postgresql://用户名:已编码的密码@连接地址:5432/postgres
+```
+
+密码中的 `@`、`#` 等特殊字符需要做 URL 百分号编码。本地只从此文件读取 `DATABASE_URL`，使用自己的 Django 密钥。保存后运行：
 
 ```bash
 .venv/bin/python manage.py runserver 127.0.0.1:8000
 ```
 
-打开 <http://127.0.0.1:8000/>，使用刚创建的账号登录。未配置书目数据源的密钥也能使用；查询失败时可以手动录入。
+打开 <http://127.0.0.1:8000/>，使用线上已有账号登录。本地页面直接读取和修改线上数据库；若缺少连接串，启动会明确报错，避免误用本机 SQLite。`manage.py test` 仍使用临时 SQLite 测试库。未配置书目数据源的密钥也能使用；查询失败时可以手动录入。
 
 ## 国内图书数据源
 
@@ -60,7 +64,7 @@ export JUHE_ISBN_KEY='你的聚合数据Key'
 
 ## Vercel + Supabase 部署
 
-本机继续使用 SQLite；只要设置 `DATABASE_URL`，Django 就改用 PostgreSQL。Vercel 环境要求同时设置 `DATABASE_URL` 和 `DJANGO_SECRET_KEY`，缺失时会直接报错，避免误用临时 SQLite 或临时密钥。Vercel 自动收集 Django 静态文件；项目的构建命令会先安装 Node 依赖并生成扫码、OCR 资源。无需迁移本机 `db.sqlite3`。
+本机开发与 Vercel 现在共用 Supabase PostgreSQL 数据。Vercel 环境要求同时设置 `DATABASE_URL` 和 `DJANGO_SECRET_KEY`，缺失时会直接报错。Vercel 自动收集 Django 静态文件；项目的构建命令会先安装 Node 依赖并生成扫码、OCR 资源。无需迁移本机旧 `db.sqlite3`。
 
 `vercel.json` 将函数区域设置为首尔 `icn1`，以靠近当前韩国区的 Supabase 数据库。如果日后更换数据库区域，请同步调整函数区域。线上 PostgreSQL 连接最长复用 15 秒，减少连续浏览时的重复连接开销。
 
@@ -69,7 +73,7 @@ export JUHE_ISBN_KEY='你的聚合数据Key'
 1. 在 Supabase 创建一个**空白项目**。本项目只由 Django 直连 PostgreSQL，不使用 Supabase 客户端或自动生成的 REST/GraphQL 接口，因此在 Supabase 控制台的 **Integrations → Data API** 中关闭 **Enable Data API**。从项目的 **Connect** 面板复制 **Transaction pooler** 连接串（端口 `6543`），供 Vercel 的 `DATABASE_URL` 环境变量使用。密码若含有 `@`、`#` 等特殊字符，须在 URL 中进行百分号编码。连接串只放在服务器环境变量中，切勿提交到 Git；无需把 Supabase API Key 配到本项目。
 2. 在项目目录执行 `npx vercel@latest link` 创建并关联 Vercel 项目。为项目的 **Production** 环境设置 `DATABASE_URL` 和 `DJANGO_SECRET_KEY`；后者可用 `python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'` 生成，后续部署中保持不变。按需添加 `SHOWAPI_APP_KEY` 和 `JUHE_ISBN_KEY`。
 3. 在项目目录执行 `npx vercel@latest --prod`。Production 构建会自动执行 Django 数据库迁移，Preview 构建不会修改数据库。项目根目录的 `manage.py` 会被自动识别。确认 Vercel 项目已启用系统环境变量；`VERCEL_URL` 和 `VERCEL_PROJECT_PRODUCTION_URL` 会自动加入 Django 允许的域名与 CSRF 来源。若使用其他自定义域名，另设 `DJANGO_ALLOWED_HOSTS` 与 `DJANGO_CSRF_TRUSTED_ORIGINS`（逗号分隔，后者需写完整 `https://` 来源）。`.vercelignore` 会阻止本机数据库、密钥和备份文件通过 CLI 上传。
-4. 首次部署成功后，在本机用 Supabase **Direct connection** 连接串创建管理员；也可以先手动执行迁移：
+4. 首次部署成功后，在本机用 Supabase **Direct connection** 或 **Session pooler** 连接串创建管理员；也可以先手动执行迁移：
 
    ```bash
    DATABASE_URL='Supabase Direct connection 连接串' .venv/bin/python manage.py migrate
@@ -85,13 +89,9 @@ Supabase 免费项目可能因长期低活跃度暂停，且需要自行定期�
 
 ## 数据与备份
 
-本机数据保存在项目目录的 `db.sqlite3`，登录密钥保存在 `.secret_key`；这两个文件都不纳入 Git。本机请定期备份：
+现在本机和线上都使用 Supabase 数据库。原有 `db.sqlite3` 只保留旧数据，不再被开发服务器使用；本地登录密钥保存在 `.secret_key`，连接串保存在 `.env.local`，这些文件都不纳入 Git。请通过 Supabase 数据库导出或 `pg_dump` 备份线上数据。
 
-```bash
-.venv/bin/python manage.py backup_library
-```
-
-备份默认写入 `backups/`。网页底部的“导出全部 CSV”方便迁移或在表格中查看。CSV 导入需包含“书名”和“ISBN”两列，每行至少填写其一；只有 ISBN 的待补充记录也能导出后再导入。建议先导出一份作为模板。相同 ISBN 的每一行代表一册实体书。
+`backup_library` 命令只适用于旧的本机 SQLite 数据库。藏书页顶部的“导出 CSV”方便迁移或在表格中查看。CSV 导入需包含“书名”和“ISBN”两列，每行至少填写其一；只有 ISBN 的待补充记录也能导出后再导入。建议先导出一份作为模板。相同 ISBN 的每一行代表一册实体书。
 
 ## 验证
 

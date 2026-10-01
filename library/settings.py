@@ -1,12 +1,19 @@
 import os
 import secrets
+import sys
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from django.core.exceptions import ImproperlyConfigured
+from dotenv import dotenv_values
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 IS_VERCEL = os.environ.get('VERCEL') == '1'
+IS_TEST_RUN = len(sys.argv) > 1 and sys.argv[1] == 'test'
+if not IS_VERCEL and not IS_TEST_RUN:
+    local_database_url = dotenv_values(BASE_DIR / '.env.local', interpolate=False).get('DATABASE_URL')
+    if local_database_url:
+        os.environ.setdefault('DATABASE_URL', local_database_url)
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '').strip()
 if not SECRET_KEY:
     if IS_VERCEL:
@@ -57,9 +64,12 @@ TEMPLATES = [{
     ]},
 }]
 WSGI_APPLICATION = 'library.wsgi.application'
-database_url = os.environ.get('DATABASE_URL', '').strip()
-if IS_VERCEL and not database_url:
-    raise ImproperlyConfigured('Set DATABASE_URL to the Supabase PostgreSQL pooler URL.')
+database_url = '' if IS_TEST_RUN else os.environ.get('DATABASE_URL', '').strip()
+if not database_url and not IS_TEST_RUN:
+    raise ImproperlyConfigured(
+        'Set DATABASE_URL in .env.local to the Supabase Session pooler URL.'
+        if not IS_VERCEL else 'Set DATABASE_URL to the Supabase PostgreSQL pooler URL.'
+    )
 if database_url:
     url = urlparse(database_url)
     if url.scheme not in ('postgres', 'postgresql') or not url.hostname or not url.path.strip('/'):
