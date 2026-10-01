@@ -1,17 +1,17 @@
 {% load static %}
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="app-html">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#18312a">
   <meta name="turbo-prefetch" content="false">
   <title>{% block title %}我的藏书{% endblock %} · 我的藏书</title>
-  <link rel="stylesheet" href="{% static 'catalog/style.css' %}" data-turbo-track="reload">
-  <script src="{% static 'catalog/navigation.bundle.js' %}" defer data-turbo-track="reload"></script>
+  <link rel="stylesheet" href="{% static 'catalog/style.css' %}?v=20261001-layout" data-turbo-track="reload">
+  <script src="{% static 'catalog/navigation.bundle.js' %}?v=20261001-layout" defer data-turbo-track="reload"></script>
   {% block head %}{% endblock %}
 </head>
-<body>
+<body class="app-body {% block body_class %}{% endblock %}">
   <div class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="{% url 'book_list' %}"><span class="brand-mark">▥</span><span>我的藏书<small>PERSONAL LIBRARY</small></span></a>

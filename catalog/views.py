@@ -80,10 +80,7 @@ def book_list(request):
     tag = request.GET.get('tag', '')
     status = request.GET.get('status', '')
     tags = list(Tag.objects.all())
-    stats = Copy.objects.aggregate(
-        total_copies=Count('pk'),
-        read_count=Count('pk', filter=Q(status=Copy.Status.READ)),
-    )
+    total_copies = Copy.objects.count()
     if query:
         copies = copies.filter(Q(edition__title__icontains=query) |
                                Q(edition__author__icontains=query) |
@@ -97,14 +94,12 @@ def book_list(request):
     valid_status = status in Copy.Status.values
     if valid_status:
         copies = copies.filter(status=status)
-    known_count = stats['total_copies'] if not (query or valid_tag or valid_status) else None
+    known_count = total_copies if not (query or valid_tag or valid_status) else None
     page = KnownCountPaginator(copies, 24, known_count=known_count).get_page(request.GET.get('page'))
     return render(request, 'catalog/list.html', {
         'page': page, 'query': query, 'selected_tag': tag,
         'selected_status': status, 'tags': tags,
-        'statuses': Copy.Status.choices, 'total_copies': stats['total_copies'],
-        'total_editions': Edition.objects.count(),
-        'read_count': stats['read_count'],
+        'statuses': Copy.Status.choices, 'total_copies': total_copies,
     })
 
 

@@ -66,9 +66,10 @@ class LibraryFlowTests(TestCase):
             response = self.client.get(reverse('book_list'))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['total_copies'], 30)
-        self.assertEqual(response.context['read_count'], 5)
         self.assertEqual(response.context['page'].paginator.count, 30)
         self.assertEqual(len(response.context['page'].object_list), 24)
+        self.assertContains(response, 'class="book-results"')
+        self.assertNotContains(response, 'class="stats"')
         self.assertLessEqual(len(queries), 7)
 
     def test_duplicate_isbn_adds_copy_without_overwriting_edition(self):
