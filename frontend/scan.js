@@ -1,4 +1,5 @@
 import { BrowserMultiFormatOneDReader } from '@zxing/browser';
+import { ResultMetadataType } from '@zxing/library';
 import { createWorker } from 'tesseract.js';
 
 const isbnField = document.getElementById('id_isbn');
@@ -27,6 +28,14 @@ let lastAcceptedIsbn = null;
 let lastSeenAt = 0;
 let savedCount = 0;
 let active = true;
+
+function issueFromResult(result, isbn) {
+  if (!isbn.startsWith('977')) return '';
+  const metadata = result.getResultMetadata?.();
+  const extension = metadata?.get(ResultMetadataType.UPC_EAN_EXTENSION);
+  const issue = String(extension || '').trim();
+  return /^\d{2}$/.test(issue) ? issue : '';
+}
 
 function message(text, kind = '') {
   statusEl.textContent = text;
@@ -179,15 +188,30 @@ async function saveScan(isbn) {
   }
 }
 
-async function scannedIsbn(isbn) {
+async function scannedIsbn(isbn, issue = '') {
   if (!active) return;
   isbnField.value = isbn;
+  if (isbn.startsWith('977') && !issue && autoSave.checked) {
+    showFeedback('期号未识别', '请让主条码和旁边的两位附加码同时进入画面，再扫描。');
+    message('已识别刊物主条码，但没有读到旁边的期号；请调整角度重扫。', 'error');
+    return;
+  }
+  const notesField = document.getElementById('id_notes');
+  const previousNotes = notesField?.value || '';
+  if (issue && notesField) {
+    const issueNote = `当年第${Number(issue)}期`;
+    if (!previousNotes.includes(issueNote)) {
+      notesField.value = previousNotes ? `${previousNotes}\n${issueNote}` : issueNote;
+    }
+  }
   scanTone();
   try { navigator.vibrate?.(45); } catch (_) { /* Optional haptic feedback. */ }
-  showFeedback('已识别 ISBN', isbn);
-  message(`已识别 ISBN ${isbn}${autoSave.checked ? '，正在自动保存…' : '，正在查询资料…'}`, 'success');
-  if (autoSave.checked) await saveScan(isbn);
-  else await lookup(isbn);
+  showFeedback(issue ? `已识别期刊第 ${Number(issue)} 期` : '已识别 ISBN', isbn);
+  message(`已识别 ISBN ${isbn}${issue ? `，当年第${Number(issue)}期` : ''}${autoSave.checked ? '，正在自动保存…' : '，正在查询资料…'}`, 'success');
+  if (autoSave.checked) {
+    await saveScan(isbn);
+    if (issue && notesField) notesField.value = previousNotes;
+  } else await lookup(isbn);
 }
 
 function stopCamera() {
@@ -263,16 +287,18 @@ cameraButton.addEventListener('click', async () => {
       }
       const isbn = normalize(result.getText());
       if (!isbn) return;
-      if (isbn === lastAcceptedIsbn) { lastSeenAt = Date.now(); return; }
+      const issue = issueFromResult(result, isbn);
+      const scannedCode = `${isbn}:${issue}`;
+      if (scannedCode === lastAcceptedIsbn) { lastSeenAt = Date.now(); return; }
       if (busy) return;
-      lastAcceptedIsbn = isbn;
+      lastAcceptedIsbn = scannedCode;
       lastSeenAt = Date.now();
       busy = true;
       if (!continuousScan.checked) {
         cameraControls = controls;
         stopCamera();
       }
-      scannedIsbn(isbn).finally(() => { busy = false; });
+      scannedIsbn(isbn, issue).finally(() => { busy = false; });
     });
     if (run !== cameraRun) { controls.stop(); return; }
     cameraControls = controls;
@@ -319,13 +345,18 @@ photoInput.addEventListener('change', async () => {
   try {
     message('正在识别图片中的条码…');
     let isbn = null;
-    try { isbn = normalize((await reader.decodeFromImageUrl(url)).getText()); } catch (_) { /* Try printed ISBN text next. */ }
+    let issue = '';
+    try {
+      const result = await reader.decodeFromImageUrl(url);
+      isbn = normalize(result.getText());
+      if (isbn) issue = issueFromResult(result, isbn);
+    } catch (_) { /* Try printed ISBN text next. */ }
     if (!isbn) {
       message('未找到条码，正在识别印刷的 ISBN 数字…');
       isbn = await ocrIsbn(file);
     }
     if (!active) return;
-    if (isbn) await scannedIsbn(isbn);
+    if (isbn) await scannedIsbn(isbn, issue);
     else message('没有识别到有效 ISBN。请拍清楚条码或数字，也可以手动输入。', 'error');
   } catch (error) {
     message('图片识别暂不可用，请手动输入 ISBN。', 'error');
