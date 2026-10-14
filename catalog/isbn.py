@@ -6,9 +6,11 @@ def normalize_isbn(raw):
     if len(value) == 10 and valid_isbn10(value):
         stem = '978' + value[:9]
         return stem + str(isbn13_check_digit(stem))
-    if len(value) == 13 and value.startswith(('978', '979')) and valid_isbn13(value):
+    # 977 is the EAN-13 prefix used for periodicals. The remaining digits
+    # include the ISSN stem and issue number, so keep the full EAN as the ID.
+    if len(value) == 13 and value.startswith(('977', '978', '979')) and valid_isbn13(value):
         return value
-    raise ValueError('请输入有效的 ISBN-10 或 ISBN-13')
+    raise ValueError('请输入有效的 ISBN-10、ISBN-13 或期刊条码')
 
 
 def isbn13_check_digit(stem):

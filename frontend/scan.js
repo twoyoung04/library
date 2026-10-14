@@ -106,14 +106,14 @@ function normalize(raw) {
     digits = '978' + digits.slice(0, 9);
     digits += checkDigit(digits);
   }
-  if (digits.length !== 13 || !/^97[89]\d{10}$/.test(digits)) return null;
+  if (digits.length !== 13 || !/^(?:977|978|979)\d{10}$/.test(digits)) return null;
   return checkDigit(digits.slice(0, 12)) === digits[12] ? digits : null;
 }
 
 async function lookup(raw) {
   const isbn = normalize(raw);
   if (!isbn) {
-    message('未识别到有效的 ISBN，请核对数字或手动输入。', 'error');
+    message('未识别到有效的 ISBN 或期刊条码，请核对数字或手动输入。', 'error');
     return;
   }
   isbnField.value = isbn;
@@ -297,7 +297,7 @@ async function ocrIsbn(file) {
     await worker.setParameters({ tessedit_char_whitelist: '0123456789XxISBNisbn- ' });
     const { data } = await worker.recognize(file);
     const text = data.text || '';
-    const patterns = [/(?:97[89](?:[\s-]?\d){10})/g, /(?:\d(?:[\s-]?\d){8}[\s-]?[\dXx])/g];
+    const patterns = [/(?:(?:977|978|979)(?:[\s-]?\d){10})/g, /(?:\d(?:[\s-]?\d){8}[\s-]?[\dXx])/g];
     for (const pattern of patterns) {
       for (const match of text.matchAll(pattern)) {
         const isbn = normalize(match[0]);

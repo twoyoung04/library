@@ -22,6 +22,7 @@ class EditionForm(forms.ModelForm):
     class Meta:
         model = Edition
         fields = ['isbn', 'title', 'author', 'publisher', 'published_year', 'cover_url']
+        labels = {'isbn': 'ISBN / 期刊条码'}
         widgets = {
             'isbn': forms.TextInput(attrs={'inputmode': 'text', 'autocomplete': 'off'}),
             'published_year': forms.NumberInput(attrs={'min': '1000', 'max': '2100'}),

@@ -208,6 +208,9 @@ def lookup_juhe(isbn):
 
 
 def lookup_book(isbn):
+    periodical = lookup_periodical(isbn)
+    if periodical:
+        return periodical
     domestic = (lookup_wuming, lookup_neodb, lookup_cp, lookup_douban, lookup_cdclib,
                 lookup_showapi, lookup_juhe)
     international = (lookup_google, lookup_openlibrary)
@@ -216,6 +219,30 @@ def lookup_book(isbn):
         if result and result.get('title'):
             return result
     return None
+
+
+def lookup_periodical(ean):
+    """Resolve known 977 EAN periodicals by their embedded ISSN stem."""
+    try:
+        normalized = normalize_isbn(ean)
+    except ValueError:
+        return None
+    if not normalized.startswith('977'):
+        return None
+    ean = normalized
+    # The first seven digits after 977 are the ISSN without its check digit.
+    publications = {
+        '1005360': ('三联生活周刊', '生活·读书·新知三联书店'),
+        '1005180': ('读者', '读者出版传媒股份有限公司'),
+    }
+    publication = publications.get(ean[3:10])
+    if not publication:
+        return None
+    title, publisher = publication
+    return {
+        'title': title, 'author': '', 'publisher': publisher,
+        'published_year': None, 'cover_url': '', 'source': '期刊 ISSN 目录',
+    }
 
 
 def lookup_google(isbn):
