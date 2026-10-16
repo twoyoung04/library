@@ -4,8 +4,8 @@
   <div class="book-info">
     <h3>{{ copy.edition.title|default:'待补充书名' }}</h3>
     <p>{% if copy.edition.title %}{{ copy.edition.author|default:'作者未录入' }}{% else %}ISBN {{ copy.edition.isbn }}{% endif %}</p>
-    <div class="book-card-tags">{% for item in copy.edition.tags.all %}{% if forloop.counter0 < 3 %}<span>{{ item.name }}</span>{% elif forloop.counter0 == 3 %}<span>+{{ copy.edition.tags.count|add:'-3' }}</span>{% endif %}{% empty %}<span>未加标签</span>{% endfor %}</div>
-    <div class="book-meta"><span>{{ copy.get_status_display }}</span><span>{{ copy.location|default:'位置未录入' }}</span></div>
+    {% if copy.edition.tags.all %}<div class="book-card-tags">{% for item in copy.edition.tags.all %}{% if forloop.counter0 < 3 %}<span>{{ item.name }}</span>{% elif forloop.counter0 == 3 %}<span>+{{ copy.edition.tags.count|add:'-3' }}</span>{% endif %}{% endfor %}</div>{% endif %}
+    <div class="book-meta"><span>{{ copy.location|default:'位置未录入' }}</span></div>
   </div>
 </a>
 {% endfor %}

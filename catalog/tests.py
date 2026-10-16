@@ -62,8 +62,7 @@ class LibraryFlowTests(TestCase):
 
     def test_book_list_query_count_stays_bounded(self):
         edition = Edition.objects.create(isbn='9780140328721', title='A book')
-        Copy.objects.bulk_create([Copy(edition=edition, status=Copy.Status.READ if n < 5
-                                       else Copy.Status.UNREAD) for n in range(30)])
+        Copy.objects.bulk_create([Copy(edition=edition) for _ in range(30)])
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get(reverse('book_list'))
         self.assertEqual(response.status_code, 200)
@@ -105,6 +104,48 @@ class LibraryFlowTests(TestCase):
         response = self.client.get(reverse('book_list'), {'q': 'Alpha', 'sort': 'title_asc'})
         self.assertContains(response, 'sort=title_asc&amp;page=2')
 
+    def test_missing_location_filter_only_shows_copies_without_location(self):
+        edition = Edition.objects.create(title='Alpha')
+        missing = Copy.objects.create(edition=edition)
+        Copy.objects.create(edition=edition, location='书架 A')
+        response = self.client.get(reverse('book_list'), {'location': 'missing'})
+        self.assertEqual([copy.pk for copy in response.context['page']], [missing.pk])
+        self.assertContains(response, 'value="missing" selected')
+        self.assertNotContains(response, 'name="status"')
+        self.assertNotContains(response, '未加标签')
+        self.assertNotContains(response, 'class="book-card-tags"')
+
+    def test_location_options_are_distinct_and_filter_exactly(self):
+        edition = Edition.objects.create(title='Alpha')
+        Copy.objects.create(edition=edition, location='书架 A')
+        Copy.objects.create(edition=edition, location='书架 A')
+        selected = Copy.objects.create(edition=edition, location='书架 A&B')
+        Copy.objects.create(edition=edition, location='missing')
+        Copy.objects.create(edition=edition)
+
+        response = self.client.get(reverse('book_list'))
+        self.assertEqual(response.context['location_options'], [
+            ('place:missing', 'missing'), ('place:书架 A', '书架 A'),
+            ('place:书架 A&B', '书架 A&B'),
+        ])
+        self.assertContains(response, '>未录入位置</option>')
+        self.assertContains(response, '>书架 A</option>', count=1)
+
+        filtered = self.client.get(reverse('book_list'), {'location': 'place:书架 A&B'})
+        self.assertEqual([copy.pk for copy in filtered.context['page']], [selected.pk])
+        self.assertContains(filtered, 'value="place:书架 A&amp;B" selected')
+
+    def test_missing_location_filter_preserved_across_pages_and_fragments(self):
+        edition = Edition.objects.create(title='Alpha')
+        Copy.objects.bulk_create([Copy(edition=edition) for _ in range(25)])
+        Copy.objects.create(edition=edition, location='书架 A')
+        response = self.client.get(reverse('book_list'), {'location': 'missing'})
+        self.assertContains(response, 'location=missing&amp;sort=added_desc&amp;page=2')
+        fragment = self.client.get(reverse('book_list'), {
+            'location': 'missing', 'page': '2', 'fragment': 'cards',
+        })
+        self.assertEqual(fragment.json()['cards'].count('class="book-card"'), 1)
+
     def test_book_list_fragment_loads_next_page_with_same_filters(self):
         edition = Edition.objects.create(title='Alpha')
         copies = Copy.objects.bulk_create([Copy(edition=edition) for _ in range(30)])
@@ -139,11 +180,11 @@ class LibraryFlowTests(TestCase):
     def test_duplicate_isbn_adds_copy_without_overwriting_edition(self):
         url = reverse('book_new')
         response = self.client.post(url, {'isbn': '9780140328721', 'title': 'First title',
-                                          'author': 'First author', 'status': 'unread',
+                                          'author': 'First author',
                                           'location': 'A1'})
         self.assertEqual(response.status_code, 302)
         response = self.client.post(url, {'isbn': '9780140328721', 'title': 'Different title',
-                                          'status': 'read', 'location': 'B2'})
+                                          'location': 'B2'})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Edition.objects.count(), 1)
         self.assertEqual(Copy.objects.count(), 2)
@@ -156,7 +197,7 @@ class LibraryFlowTests(TestCase):
     })
     def test_scan_auto_save_creates_edition_and_copy(self, metadata):
         response = self.client.post(reverse('scan_save'), {
-            'isbn': '9787100202169', 'status': 'read', 'location': '书架 A',
+            'isbn': '9787100202169', 'location': '书架 A',
             'acquired_on': '2026-09-30',
         })
         self.assertEqual(response.status_code, 200)
@@ -165,13 +206,12 @@ class LibraryFlowTests(TestCase):
         self.assertEqual(Edition.objects.get().publisher, '商务印书馆')
         copy = Copy.objects.get()
         self.assertEqual(copy.location, '书架 A')
-        self.assertEqual(copy.status, Copy.Status.READ)
         metadata.assert_called_once_with('9787100202169')
 
     @patch('catalog.views._book_metadata', return_value={})
     def test_scan_auto_save_preserves_isbn_without_metadata(self, metadata):
         response = self.client.post(reverse('scan_save'), {
-            'isbn': '9787100202169', 'status': 'unread',
+            'isbn': '9787100202169',
         })
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['needs_details'])
@@ -194,8 +234,8 @@ class LibraryFlowTests(TestCase):
     @patch('catalog.views._book_metadata')
     def test_scan_existing_isbn_adds_copy_without_overwriting(self, metadata):
         Edition.objects.create(isbn='9787100202169', title='已有书名', author='已有作者')
-        first = self.client.post(reverse('scan_save'), {'isbn': '9787100202169', 'status': 'unread'})
-        second = self.client.post(reverse('scan_save'), {'isbn': '9787100202169', 'status': 'unread'})
+        first = self.client.post(reverse('scan_save'), {'isbn': '9787100202169'})
+        second = self.client.post(reverse('scan_save'), {'isbn': '9787100202169'})
         self.assertEqual(first.json()['copy_count'], 1)
         self.assertEqual(second.json()['copy_count'], 2)
         self.assertEqual(Edition.objects.count(), 1)
@@ -206,7 +246,7 @@ class LibraryFlowTests(TestCase):
     @patch('catalog.views._book_metadata', return_value={'title': '补全书名', 'author': '作者'})
     def test_scan_enriches_existing_isbn_only_record(self, metadata):
         Edition.objects.create(isbn='9787100202169', title='')
-        response = self.client.post(reverse('scan_save'), {'isbn': '9787100202169', 'status': 'unread'})
+        response = self.client.post(reverse('scan_save'), {'isbn': '9787100202169'})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Edition.objects.get().title, '补全书名')
         self.assertEqual(Copy.objects.count(), 1)
@@ -216,10 +256,10 @@ class LibraryFlowTests(TestCase):
     def test_scan_save_rejects_invalid_isbn_and_copy_fields(self, metadata):
         self.assertEqual(self.client.get(reverse('scan_save')).status_code, 405)
         self.assertEqual(self.client.post(reverse('scan_save'), {
-            'isbn': 'invalid', 'status': 'unread',
+            'isbn': 'invalid',
         }).status_code, 400)
         self.assertEqual(self.client.post(reverse('scan_save'), {
-            'isbn': '9787100202169', 'status': 'invalid',
+            'isbn': '9787100202169', 'acquired_on': 'invalid',
         }).status_code, 400)
         self.assertEqual(Edition.objects.count(), 0)
         self.assertEqual(Copy.objects.count(), 0)
@@ -229,25 +269,25 @@ class LibraryFlowTests(TestCase):
         client = Client(enforce_csrf_checks=True)
         client.force_login(self.user)
         self.assertEqual(client.post(reverse('scan_save'), {
-            'isbn': '9787100202169', 'status': 'unread',
+            'isbn': '9787100202169',
         }).status_code, 403)
         page = client.get(reverse('book_new'))
         self.assertContains(page, 'id="auto-save"')
         self.assertContains(page, 'id="continuous-scan"')
         with patch('catalog.views._book_metadata', return_value={}):
             self.assertEqual(client.post(reverse('scan_save'), {
-                'isbn': '9787100202169', 'status': 'unread',
+                'isbn': '9787100202169',
                 'csrfmiddlewaretoken': client.cookies['csrftoken'].value,
             }).status_code, 200)
         anonymous = Client()
         self.assertEqual(anonymous.post(reverse('scan_save'), {
-            'isbn': '9787100202169', 'status': 'unread',
+            'isbn': '9787100202169',
         }).status_code, 302)
 
     def test_manual_entry_completes_isbn_only_record(self):
         Edition.objects.create(isbn='9787100202169', title='')
         response = self.client.post(reverse('book_new'), {
-            'isbn': '9787100202169', 'title': '培根随笔全集', 'status': 'unread',
+            'isbn': '9787100202169', 'title': '培根随笔全集',
         })
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Edition.objects.get().title, '培根随笔全集')
@@ -256,7 +296,7 @@ class LibraryFlowTests(TestCase):
     def test_export_import_preserves_two_copies(self):
         book = Edition.objects.create(isbn='9780140328721', title='A book', author='An author')
         Copy.objects.create(edition=book, location='A1')
-        Copy.objects.create(edition=book, location='B2', status='read')
+        Copy.objects.create(edition=book, location='B2')
         content = self.client.get(reverse('export_csv')).content
         Copy.objects.all().delete()
         Edition.objects.all().delete()
@@ -266,6 +306,15 @@ class LibraryFlowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Edition.objects.count(), 1)
         self.assertEqual(set(Copy.objects.values_list('location', flat=True)), {'A1', 'B2'})
+        self.assertNotIn('阅读状态', content.decode('utf-8-sig').splitlines()[0])
+
+    def test_legacy_csv_ignores_reading_status(self):
+        content = 'ISBN,书名,存放位置,阅读状态\n9780140328721,旧版图书,A1,read\n'.encode()
+        response = self.client.post(reverse('import_csv'), {
+            'file': SimpleUploadedFile('books.csv', content, content_type='text/csv')
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Copy.objects.get().location, 'A1')
 
     def test_tag_filter_finds_book_with_multiple_tags(self):
         literary = Tag.objects.create(name='文学')
@@ -280,7 +329,7 @@ class LibraryFlowTests(TestCase):
     def test_manual_entry_accepts_any_number_of_tags(self):
         names = [f'标签{number}' for number in range(20)]
         response = self.client.post(reverse('book_new'), {
-            'isbn': '9780140328721', 'title': '多标签图书', 'status': 'unread',
+            'isbn': '9780140328721', 'title': '多标签图书',
             'tags_text': '，'.join([*names, names[0]]),
         })
         self.assertEqual(response.status_code, 302)
@@ -301,7 +350,7 @@ class LibraryFlowTests(TestCase):
         book = Edition.objects.create(isbn='9780140328721', title='已有图书')
         book.tags.add(Tag.objects.create(name='原标签'))
         response = self.client.post(reverse('book_new'), {
-            'isbn': '9780140328721', 'title': '已有图书', 'status': 'unread',
+            'isbn': '9780140328721', 'title': '已有图书',
             'tags_text': '新标签',
         })
         self.assertEqual(response.status_code, 302)
@@ -310,7 +359,7 @@ class LibraryFlowTests(TestCase):
     def test_scan_save_applies_tags(self):
         with patch('catalog.views._book_metadata', return_value={}):
             response = self.client.post(reverse('scan_save'), {
-                'isbn': '9787100202169', 'status': 'unread',
+                'isbn': '9787100202169',
                 'tags_text': '待整理，历史',
             })
         self.assertEqual(response.status_code, 200)

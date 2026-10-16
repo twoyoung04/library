@@ -12,13 +12,12 @@
 <section class="collection-panel collection-workspace">
   <div class="section-heading"><h2>书架目录</h2><span class="count-label">共 {{ total_copies }} 册 · 当前 {{ page.paginator.count }} 册</span></div>
   <details class="catalog-controls" open>
-    <summary><span>⌕ 搜索 / 筛选 / 排序</span><span class="controls-state">{% if query or selected_tag or selected_status or selected_sort != 'added_desc' %}已应用{% endif %}</span></summary>
+    <summary><span>⌕ 搜索 / 筛选 / 排序</span><span class="controls-state">{% if query or selected_tag or selected_location or selected_sort != 'added_desc' %}已应用{% endif %}</span></summary>
     <form class="filters" method="get">
-      <label class="search-field"><span>⌕</span><input type="search" name="q" value="{{ query }}" placeholder="搜索书名、作者、ISBN、标签或位置"></label>
+      <div class="search-field"><button type="submit" aria-label="搜索藏书" title="搜索"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m16 16 5 5"></path></svg></button><input type="search" name="q" aria-label="搜索藏书" value="{{ query }}" placeholder="搜索书名、作者、ISBN、标签或位置"></div>
       <select name="tag" aria-label="标签"><option value="">全部标签</option>{% for item in tags %}<option value="{{ item.pk }}" {% if selected_tag == item.pk|stringformat:'s' %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select>
-      <select name="status" aria-label="阅读状态"><option value="">全部状态</option>{% for value,label in statuses %}<option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+      <select name="location" aria-label="存放位置"><option value="">全部位置</option><option value="missing" {% if selected_location == 'missing' %}selected{% endif %}>未录入位置</option>{% for value,label in location_options %}<option value="{{ value }}" {% if selected_location == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
       <select name="sort" aria-label="排序方式">{% for value,label in sort_options %}<option value="{{ value }}" {% if selected_sort == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
-      <button class="button secondary" type="submit">应用</button>
     </form>
     <a class="mobile-export" href="{% url 'export_csv' %}" data-turbo="false">导出全部 CSV ↗</a>
   </details>
@@ -26,9 +25,9 @@
   {% if page.object_list %}
   <div class="book-grid">{% include 'catalog/_book_cards.html' %}</div>
   {% else %}
-  <div class="empty-state"><div>▥</div><h3>{% if query or selected_tag or selected_status %}没有找到符合条件的书{% else %}书架还是空的{% endif %}</h3><p>{% if query or selected_tag or selected_status %}试试调整搜索词或筛选条件。{% else %}从扫描第一本书的 ISBN 开始。{% endif %}</p><a class="button primary" href="{% url 'book_new' %}">＋ 录入新书</a></div>
+  <div class="empty-state"><div>▥</div><h3>{% if query or selected_tag or selected_location %}没有找到符合条件的书{% else %}书架还是空的{% endif %}</h3><p>{% if query or selected_tag or selected_location %}试试调整搜索词或筛选条件。{% else %}从扫描第一本书的 ISBN 开始。{% endif %}</p><a class="button primary" href="{% url 'book_new' %}">＋ 录入新书</a></div>
   {% endif %}
-  {% if page.paginator.num_pages > 1 %}<div class="pagination">{% if page.has_previous %}<a href="?q={{ query|urlencode }}&amp;tag={{ selected_tag }}&amp;status={{ selected_status }}&amp;sort={{ selected_sort }}&amp;page={{ page.previous_page_number }}">← 上一页</a>{% endif %}<span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>{% if page.has_next %}<a href="?q={{ query|urlencode }}&amp;tag={{ selected_tag }}&amp;status={{ selected_status }}&amp;sort={{ selected_sort }}&amp;page={{ page.next_page_number }}">下一页 →</a>{% endif %}</div>{% endif %}
+  {% if page.paginator.num_pages > 1 %}<div class="pagination">{% if page.has_previous %}<a href="?q={{ query|urlencode }}&amp;tag={{ selected_tag }}&amp;location={{ selected_location|urlencode }}&amp;sort={{ selected_sort }}&amp;page={{ page.previous_page_number }}">← 上一页</a>{% endif %}<span>第 {{ page.number }} / {{ page.paginator.num_pages }} 页</span>{% if page.has_next %}<a href="?q={{ query|urlencode }}&amp;tag={{ selected_tag }}&amp;location={{ selected_location|urlencode }}&amp;sort={{ selected_sort }}&amp;page={{ page.next_page_number }}">下一页 →</a>{% endif %}</div>{% endif %}
   </div>
 </section>
 {% endblock %}

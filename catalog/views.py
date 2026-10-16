@@ -90,12 +90,17 @@ def book_list(request):
     fragment = request.GET.get('fragment') == 'cards'
     query = request.GET.get('q', '').strip()[:100]
     tag = request.GET.get('tag', '')
-    status = request.GET.get('status', '')
+    location = request.GET.get('location', '')[:126]
     sort = request.GET.get('sort', 'added_desc')
     if sort not in dict(BOOK_SORT_OPTIONS):
         sort = 'added_desc'
     tags = [] if fragment else list(Tag.objects.all())
-    total_copies = None if fragment and (query or tag or status) else Copy.objects.count()
+    location_options = [] if fragment else [
+        (f'place:{name}', name)
+        for name in Copy.objects.exclude(location='').order_by('location')
+        .values_list('location', flat=True).distinct()
+    ]
+    total_copies = None if fragment and (query or tag or location) else Copy.objects.count()
     if query:
         copies = copies.filter(Q(edition__title__icontains=query) |
                                Q(edition__author__icontains=query) |
@@ -110,9 +115,11 @@ def book_list(request):
                      else tag_id in {item.pk for item in tags})
     if valid_tag:
         copies = copies.filter(edition__tags__pk=tag_id)
-    valid_status = status in Copy.Status.values
-    if valid_status:
-        copies = copies.filter(status=status)
+    missing_location = location == 'missing'
+    if missing_location:
+        copies = copies.filter(location='')
+    elif location.startswith('place:'):
+        copies = copies.filter(location=location[6:])
     if sort.startswith('title_'):
         missing_title_last = Case(When(edition__title='', then=1), default=0,
                                   output_field=IntegerField())
@@ -127,7 +134,7 @@ def book_list(request):
         copies = copies.order_by('created_at', 'id')
     else:
         copies = copies.order_by('-created_at', '-id')
-    known_count = total_copies if not (query or valid_tag or valid_status) else None
+    known_count = total_copies if not (query or valid_tag or location) else None
     page = KnownCountPaginator(copies, 24, known_count=known_count).get_page(request.GET.get('page'))
     if fragment:
         return JsonResponse({
@@ -137,9 +144,9 @@ def book_list(request):
         })
     return render(request, 'catalog/list.html', {
         'page': page, 'query': query, 'selected_tag': tag,
-        'selected_status': status, 'selected_sort': sort, 'sort_options': BOOK_SORT_OPTIONS,
-        'tags': tags,
-        'statuses': Copy.Status.choices, 'total_copies': total_copies,
+        'selected_location': location,
+        'selected_sort': sort, 'sort_options': BOOK_SORT_OPTIONS,
+        'tags': tags, 'location_options': location_options, 'total_copies': total_copies,
     })
 
 
@@ -301,7 +308,7 @@ def scan_save(request):
         return JsonResponse({'error': str(exc)}, status=400)
     copy_form = CopyForm(request.POST)
     if not copy_form.is_valid():
-        return JsonResponse({'error': '请检查这册书的位置、状态或日期。',
+        return JsonResponse({'error': '请检查这册书的位置或日期。',
                              'fields': copy_form.errors.get_json_data()}, status=400)
     try:
         tag_names = parse_tag_names(request.POST.get('tags_text', ''))
@@ -340,7 +347,7 @@ def scan_save(request):
 
 
 CSV_FIELDS = ['ISBN', '书名', '作者', '出版社', '出版年', '封面链接',
-              '标签', '存放位置', '阅读状态', '入藏日期', '备注']
+              '标签', '存放位置', '入藏日期', '备注']
 
 
 @login_required
@@ -357,7 +364,7 @@ def export_csv(request):
             book.isbn or '', book.title, book.author, book.publisher,
             book.published_year or '', book.cover_url,
             '、'.join(book.tags.values_list('name', flat=True)), copy.location,
-            copy.status, copy.acquired_on or '', copy.notes,
+            copy.acquired_on or '', copy.notes,
         ])
     return response
 
@@ -404,9 +411,6 @@ def _import_row(row, number):
         acquired = date.fromisoformat(acquired_raw) if acquired_raw else None
     except ValueError as exc:
         raise ValueError(f'第 {number} 行入藏日期需为 YYYY-MM-DD。') from exc
-    status = (row.get('阅读状态') or Copy.Status.UNREAD).strip()
-    if status not in Copy.Status.values:
-        raise ValueError(f'第 {number} 行阅读状态无效。')
     try:
         names = parse_tag_names(row.get('标签') or '')
         legacy_category = (row.get('分类') or '').strip()
@@ -426,4 +430,4 @@ def _import_row(row, number):
         )
     _add_tags(edition, names)
     Copy.objects.create(edition=edition, location=(row.get('存放位置') or '').strip()[:120],
-                        status=status, acquired_on=acquired, notes=(row.get('备注') or '').strip())
+                        acquired_on=acquired, notes=(row.get('备注') or '').strip())

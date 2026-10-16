@@ -47,7 +47,7 @@ class EditionForm(forms.ModelForm):
 class CopyForm(forms.ModelForm):
     class Meta:
         model = Copy
-        fields = ['location', 'status', 'acquired_on', 'notes']
+        fields = ['location', 'acquired_on', 'notes']
         widgets = {
             'acquired_on': forms.DateInput(attrs={'type': 'date'}, format='%Y-%m-%d'),
             'notes': forms.Textarea(attrs={'rows': 3}),

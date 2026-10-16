@@ -95,7 +95,7 @@ autoSave.addEventListener('change', () => {
   if (!autoSave.checked) continuousScan.checked = false;
   manualSaveButton.disabled = autoSave.checked;
   message(autoSave.checked
-    ? '自动保存已开启。扫描后会立即入库；下方位置和阅读状态会用于每一册。'
+    ? '自动保存已开启。扫描后会立即入库；下方位置和入藏日期会用于每一册。'
     : '自动保存已关闭。扫描后请检查资料并手动保存。');
 });
 

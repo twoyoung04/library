@@ -34,17 +34,9 @@ class Edition(models.Model):
 
 
 class Copy(models.Model):
-    class Status(models.TextChoices):
-        UNREAD = 'unread', '未读'
-        READING = 'reading', '在读'
-        READ = 'read', '已读'
-        LOANED = 'loaned', '借出'
-
     edition = models.ForeignKey(Edition, on_delete=models.CASCADE,
                                 related_name='copies', verbose_name='图书版本')
     location = models.CharField('存放位置', max_length=120, blank=True)
-    status = models.CharField('阅读状态', max_length=12, choices=Status.choices,
-                              default=Status.UNREAD)
     acquired_on = models.DateField('入藏日期', null=True, blank=True)
     notes = models.TextField('备注', blank=True)
     created_at = models.DateTimeField('录入时间', auto_now_add=True)
