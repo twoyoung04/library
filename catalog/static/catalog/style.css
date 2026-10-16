@@ -76,6 +76,18 @@
 .collection-workspace .search-field button:hover{color:#35673f}
 .collection-workspace .search-field button:focus-visible{outline:2px solid #719a77;outline-offset:-2px}
 
+/* Keep the cover and its details aligned within fixed-height shelf rows. */
+.book-card{align-items:center;--book-card-content-height:116px;--book-card-cover-width:80px}
+.book-card .book-cover,.book-card .book-info{height:var(--book-card-content-height)}
+.book-card .book-cover{width:var(--book-card-cover-width);min-width:var(--book-card-cover-width)}
+.book-card .book-info{flex:1;overflow:hidden}
+.book-card .book-meta{margin-top:4px}
+@media(max-width:760px){
+  .book-card{--book-card-content-height:103px;--book-card-cover-width:72px}
+  .book-card .book-info h3{line-height:1.3;margin-bottom:2px}
+  .book-card .book-meta{margin-top:2px}
+}
+
 /* On phones, keep the shelf visible and open controls only when needed. */
 .catalog-controls{flex:none}
 .catalog-controls>summary,.mobile-count,.mobile-export{display:none}
