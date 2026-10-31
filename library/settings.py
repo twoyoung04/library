@@ -11,9 +11,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 IS_VERCEL = os.environ.get('VERCEL') == '1'
 IS_TEST_RUN = len(sys.argv) > 1 and sys.argv[1] == 'test'
 if not IS_VERCEL and not IS_TEST_RUN:
-    local_database_url = dotenv_values(BASE_DIR / '.env.local', interpolate=False).get('DATABASE_URL')
+    local_env = dotenv_values(BASE_DIR / '.env.local', interpolate=False)
+    local_database_url = local_env.get('DATABASE_URL')
     if local_database_url:
         os.environ.setdefault('DATABASE_URL', local_database_url)
+    local_debug = local_env.get('DJANGO_DEBUG')
+    if local_debug is not None:
+        os.environ.setdefault('DJANGO_DEBUG', local_debug)
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '').strip()
 if not SECRET_KEY:
     if IS_VERCEL:
