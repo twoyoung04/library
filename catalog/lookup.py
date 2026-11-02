@@ -38,7 +38,8 @@ def lookup_wuming(isbn):
     data = fetch_json('https://www.book345.com/api/detail/' + quote(isbn))
     if not isinstance(data, dict) or not data.get('title') or not _same_isbn(data.get('isbn'), isbn):
         return None
-    image = data.get('img') or ''
+    extra = data.get('doubanExtra') or {}
+    image = (extra.get('coverUrl') if isinstance(extra, dict) else '') or data.get('dbImg') or data.get('img') or ''
     if image.startswith('/covers/'):
         image = 'https://www.book345.com' + image
     return {

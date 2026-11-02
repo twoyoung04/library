@@ -63,3 +63,27 @@ class CoverTests(TestCase):
         response = self.client.get(f'/books/{e.pk}/cover/')
         self.assertEqual(response.status_code, 302)
         self.assertIn('/login/', response['Location'])
+
+    def test_known_placeholder_key_is_not_considered_a_stored_cover(self):
+        from .covers import PLACEHOLDER_HASHES, current_key
+        e = Edition(cover_url='https://example.com/cover.jpg')
+        e.cover_object_key = source_prefix(e.cover_url) + next(iter(PLACEHOLDER_HASHES)) + '.jpg'
+        self.assertFalse(current_key(e))
+        self.assertEqual(e.cover_display_url, '')
+
+    @patch('catalog.lookup.fetch_json')
+    def test_wuming_prefers_original_large_cover_over_placeholder_route(self, fetch):
+        from .lookup import lookup_wuming
+        fetch.return_value = {'isbn': '9787513142434', 'title': '1984',
+                              'img': '/covers/9787513142434.jpg',
+                              'dbImg': 'https://img2.doubanio.com/small.jpg',
+                              'doubanExtra': {'coverUrl': 'https://img2.doubanio.com/large.jpg'}}
+        self.assertEqual(lookup_wuming('9787513142434')['cover_url'],
+                         'https://img2.doubanio.com/large.jpg')
+
+    @patch('catalog.lookup.lookup_wuming', return_value={'cover_url': 'https://img2.doubanio.com/original.jpg'})
+    @patch('catalog.covers.download_image', return_value=b'jpeg')
+    def test_background_transfer_uses_original_for_wuming(self, download, lookup):
+        e = Edition.objects.create(isbn='9787513142434', cover_url='https://www.book345.com/covers/9787513142434.jpg')
+        self.assertTrue(sync_edition(e, Mock()))
+        download.assert_called_once_with('https://img2.doubanio.com/original.jpg')
