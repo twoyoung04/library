@@ -22,7 +22,7 @@ services:
       retries: 20
     restart: unless-stopped
     logging: *logging
-  web:
+  web: &web
     build:
       context: .
       target: app
@@ -34,12 +34,21 @@ services:
       DATABASE_URL: postgresql://library:${POSTGRES_PASSWORD}@db:5432/library
       DATABASE_SSLMODE: disable
       SHOWAPI_APP_KEY: ${SHOWAPI_APP_KEY:-}
+      COS_ENABLED: ${COS_ENABLED:-0}
+      COS_BUCKET: ${COS_BUCKET:-cover-1307828558}
+      COS_REGION: ${COS_REGION:-}
+      COS_SECRET_ID: ${COS_SECRET_ID:-}
+      COS_SECRET_KEY: ${COS_SECRET_KEY:-}
       JUHE_ISBN_KEY: ${JUHE_ISBN_KEY:-}
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
     logging: *logging
+  covers:
+    <<: *web
+    profiles: ['covers']
+    command: ['python', 'manage.py', 'sync_covers', '--watch']
   nginx:
     build:
       context: .

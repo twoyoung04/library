@@ -101,3 +101,10 @@ CSRF_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 CSRF_FAILURE_VIEW = 'library.views.csrf_failure'
+
+# Credentials belong in the server environment, never in templates or URLs.
+COS_ENABLED = os.environ.get('COS_ENABLED', '0') == '1'
+COS_BUCKET = os.environ.get('COS_BUCKET', 'cover-1307828558')
+COS_REGION = os.environ.get('COS_REGION', '')
+COS_SECRET_ID = os.environ.get('COS_SECRET_ID', '')
+COS_SECRET_KEY = os.environ.get('COS_SECRET_KEY', '')

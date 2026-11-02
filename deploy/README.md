@@ -91,3 +91,21 @@ Nginx 从共享卷加载证书并提供前端静态资源；应用和数据库�
 - Certbot `renew --dry-run` 成功，正式续期 cron 已启用。
 - 用户放行公网 TCP 443 后，公网按域名/SNI及目标 IP 验证登录页与扫码 JS 均返回 200，证书校验通过；HTTP 返回 301 到 https://lovaime.com/。本机系统 DNS 暂仍缓存旧 IP，公共解析已是新 IP。
 - DNS 权威记录及公共解析已指向 `115.159.95.169`，部分客户端仍可能受旧 DNS 缓存影响。
+
+## COS 封面（代码已准备，尚未部署／迁移）
+
+目标桶 `cover-1307828558`。在服务器 `.env` 配置 `COS_REGION`、`COS_SECRET_ID`、`COS_SECRET_KEY`；权限至少覆盖该桶 `covers/` 前缀对象的 PutObject / GetObject。无需开放整个桶或提供公开访问权限。
+构建并备份后应用 `0005_edition_cover_object_key` 迁移；先保持 `COS_ENABLED=0`，执行一次 `python manage.py sync_covers`，记录成功和失败数量。真实凭据未配置前不运行批量迁移。
+命令把图片校验并转为 JPEG（最长 1600×2400，下载最大 8 MB），上传成功后才保存 COS key；来源 URL 保留在数据库用于重试，但开启 COS 后不会用于页面图片加载。
+HTTP 下载拒绝非公网目标及不安全协议，每次重定向重新检查；不能下载的来源需重试或人工替换，绝不将错误页当作图片保存。
+
+迁移确认后在 `.env` 设置 `COS_ENABLED=1`，重建 web 容器，并启动持续同步 worker：
+
+```bash
+docker compose --profile covers up -d --build web covers nginx
+```
+
+页面使用本站受登录保护的 `/books/<id>/cover/` 地址，服务端从 COS 读取图片，允许私有桶且无需配置 COS 自定义域名。浏览器不再请求第三方封面，未迁移或来源已修改的封面暂显示占位符。
+worker 自动扫描新增、修改及 CSV 导入产生的封面，失败在下一轮重试；日志只记录图书 ID 和错误类型，不记录密钥和签名。
+图片对象按来源和内容哈希命名，可重试且不会覆盖其他图书；当前不自动删除旧对象，避免误删共享封面。数据库备份只含对象 key，COS 对象需单独保留／备份。
+上线前仍需完成真实 COS 上传读取验证、批量迁移、容器测试和公网页面验证。本地开发若启用 COS，还需以环境变量配置相同的 COS 参数。

@@ -20,9 +20,21 @@ class Edition(models.Model):
     publisher = models.CharField('出版社', max_length=200, blank=True)
     published_year = models.PositiveSmallIntegerField('出版年', null=True, blank=True)
     cover_url = models.URLField('封面链接', max_length=1000, blank=True)
+    cover_object_key = models.CharField(max_length=300, blank=True, editable=False)
     tags = models.ManyToManyField(Tag, blank=True, related_name='editions', verbose_name='标签')
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    @property
+    def cover_display_url(self):
+        from django.conf import settings
+        from django.urls import reverse
+        from .covers import current_key
+        if not settings.COS_ENABLED:
+            return self.cover_url
+        if current_key(self):
+            return reverse('book_cover', args=[self.pk]) + '?v=' + self.cover_object_key.rsplit('/', 1)[-1][:16]
+        return ''
 
     class Meta:
         ordering = ['title', 'id']
