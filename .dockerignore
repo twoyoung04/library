@@ -1,0 +1,16 @@
+.git
+.env*
+.secret_key
+.venv
+.vercel
+node_modules
+backups
+db.sqlite3*
+__pycache__
+**/__pycache__
+*.pyc
+staticfiles
+catalog/static/catalog/vendor
+ios
+deploy/data
+deploy/backups

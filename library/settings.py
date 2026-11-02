@@ -8,36 +8,31 @@ from django.core.exceptions import ImproperlyConfigured
 from dotenv import dotenv_values
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-IS_VERCEL = os.environ.get('VERCEL') == '1'
 IS_TEST_RUN = len(sys.argv) > 1 and sys.argv[1] == 'test'
-if not IS_VERCEL and not IS_TEST_RUN:
-    local_database_url = dotenv_values(BASE_DIR / '.env.local', interpolate=False).get('DATABASE_URL')
-    if local_database_url:
-        os.environ.setdefault('DATABASE_URL', local_database_url)
+if not IS_TEST_RUN:
+    local_config = dotenv_values(BASE_DIR / '.env.local', interpolate=False)
+    for name in ('DATABASE_URL', 'DATABASE_SSLMODE'):
+        if local_config.get(name):
+            os.environ.setdefault(name, local_config[name])
+IS_PRODUCTION = os.environ.get('DJANGO_ENV') == 'production'
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '').strip()
 if not SECRET_KEY:
-    if IS_VERCEL:
-        raise ImproperlyConfigured('Set DJANGO_SECRET_KEY in Vercel environment variables.')
+    if IS_PRODUCTION:
+        raise ImproperlyConfigured('Set DJANGO_SECRET_KEY in the production environment.')
     key_file = BASE_DIR / '.secret_key'
     if not key_file.exists():
         key_file.write_text(secrets.token_urlsafe(48))
         key_file.chmod(0o600)
     SECRET_KEY = key_file.read_text().strip()
-DEBUG = os.environ.get('DJANGO_DEBUG', '0' if IS_VERCEL else '1') == '1'
+DEBUG = not IS_PRODUCTION and os.environ.get('DJANGO_DEBUG', '1') == '1'
 ALLOWED_HOSTS = [v.strip() for v in os.environ.get(
     'DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if v.strip()]
 CSRF_TRUSTED_ORIGINS = [v.strip() for v in os.environ.get(
     'DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',') if v.strip()]
-if IS_VERCEL:
-    for name in ('VERCEL_URL', 'VERCEL_BRANCH_URL', 'VERCEL_PROJECT_PRODUCTION_URL'):
-        host = os.environ.get(name, '').strip()
-        if host:
-            if host not in ALLOWED_HOSTS:
-                ALLOWED_HOSTS.append(host)
-            origin = f'https://{host}'
-            if origin not in CSRF_TRUSTED_ORIGINS:
-                CSRF_TRUSTED_ORIGINS.append(origin)
+# Enable only behind our proxy, which overwrites X-Forwarded-Proto.
+if IS_PRODUCTION:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
 
 INSTALLED_APPS = [
     'django.contrib.admin', 'django.contrib.auth', 'django.contrib.contenttypes',
@@ -66,10 +61,7 @@ TEMPLATES = [{
 WSGI_APPLICATION = 'library.wsgi.application'
 database_url = '' if IS_TEST_RUN else os.environ.get('DATABASE_URL', '').strip()
 if not database_url and not IS_TEST_RUN:
-    raise ImproperlyConfigured(
-        'Set DATABASE_URL in .env.local to the Supabase Session pooler URL.'
-        if not IS_VERCEL else 'Set DATABASE_URL to the Supabase PostgreSQL pooler URL.'
-    )
+    raise ImproperlyConfigured('Set DATABASE_URL in the environment or .env.local.')
 if database_url:
     url = urlparse(database_url)
     if url.scheme not in ('postgres', 'postgresql') or not url.hostname or not url.path.strip('/'):
@@ -81,9 +73,9 @@ if database_url:
         'PASSWORD': unquote(url.password or ''),
         'HOST': url.hostname,
         'PORT': url.port or 5432,
-        'OPTIONS': {'sslmode': 'require'},
-        # Reuse a warm function's connection during short navigation bursts.
-        'CONN_MAX_AGE': 15 if IS_VERCEL else 0,
+        'OPTIONS': {'sslmode': os.environ.get('DATABASE_SSLMODE', 'require')},
+        'CONN_MAX_AGE': 60 if IS_PRODUCTION else 0,
+        'CONN_HEALTH_CHECKS': True,
         'DISABLE_SERVER_SIDE_CURSORS': True,
     }}
 else:

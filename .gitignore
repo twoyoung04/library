@@ -13,3 +13,5 @@ __pycache__/
 .vercel/
 .env
 .env.*
+deploy/backups/
+deploy/data/
