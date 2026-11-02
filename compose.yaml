@@ -23,6 +23,7 @@ services:
     restart: unless-stopped
     logging: *logging
   web: &web
+    image: library-web:latest
     build:
       context: .
       target: app
