@@ -6,13 +6,13 @@ from .covers import download_image, source_prefix, sync_edition, validate_url
 from .models import Edition
 
 
-@override_settings(COS_ENABLED=True, COS_BUCKET='cover-1307828558')
+@override_settings(COS_ENABLED=True, COS_BUCKET='cover-1307828558', COS_REGION='ap-shanghai', COS_PUBLIC_BASE_URL='https://cover-1307828558.cos.ap-shanghai.myqcloud.com')
 class CoverTests(TestCase):
     def test_external_cover_never_appears_in_page_image_url(self):
         e = Edition.objects.create(title='Test', cover_url='https://external.example/cover.jpg')
         self.assertEqual(e.cover_display_url, '')
         e.cover_object_key = source_prefix(e.cover_url) + 'stored.jpg'
-        self.assertIn(f'/books/{e.pk}/cover/', e.cover_display_url)
+        self.assertTrue(e.cover_display_url.startswith('https://cover-1307828558.cos.ap-shanghai.myqcloud.com/covers/'))
         e.cover_url = 'https://other.example/new.jpg'
         self.assertEqual(e.cover_display_url, '')
 
@@ -87,3 +87,32 @@ class CoverTests(TestCase):
         e = Edition.objects.create(isbn='9787513142434', cover_url='https://www.book345.com/covers/9787513142434.jpg')
         self.assertTrue(sync_edition(e, Mock()))
         download.assert_called_once_with('https://img2.doubanio.com/original.jpg')
+
+    @patch('catalog.covers.download_image', return_value=b'jpeg')
+    def test_sync_stores_key_and_keeps_original_source(self, download):
+        source = 'https://example.com/cover.jpg'
+        e = Edition.objects.create(cover_url=source)
+        self.assertTrue(sync_edition(e, Mock()))
+        e.refresh_from_db()
+        self.assertEqual(e.cover_url, source)
+        self.assertTrue(e.cover_display_url.endswith(e.cover_object_key))
+        e.cover_url = 'https://example.com/new.jpg'
+        self.assertEqual(e.cover_display_url, '')
+
+    def test_legacy_cover_endpoint_redirects_to_public_object(self):
+        from django.contrib.auth import get_user_model
+        e = Edition.objects.create(cover_url='https://example.com/cover.jpg')
+        e.cover_object_key = source_prefix(e.cover_url) + 'original.jpg'
+        e.save()
+        self.client.force_login(get_user_model().objects.create_user(username='cover-reader'))
+        r = self.client.get(f'/books/{e.pk}/cover/')
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r['Location'], e.cover_display_url)
+
+    def test_switching_public_domain_does_not_change_stored_path(self):
+        e = Edition(cover_url='https://example.com/cover.jpg')
+        e.cover_object_key = source_prefix(e.cover_url) + 'cover.jpg'
+        original_key = e.cover_object_key
+        with override_settings(COS_PUBLIC_BASE_URL='https://images.example.com'):
+            self.assertEqual(e.cover_display_url, 'https://images.example.com/' + original_key)
+        self.assertEqual(e.cover_object_key, original_key)

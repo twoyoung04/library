@@ -143,3 +143,13 @@ worker 自动扫描新增、修改及 CSV 导入产生的封面，失败在下�
 - 公网真实 TLS 校验、登录页、静态资源、HTTP 跳转、Secure Cookie 和 CSRF 正反例均通过；IP Host 下登录后的图库及 COS 图片读取通过。
 - 首次在全新服务器启用时，需先让 IP 的 80 端口 server 提供 ACME webroot，再申请证书并启用 TLS server：`docker compose run --rm certbot certonly --webroot -w /var/www/acme --ip-address 115.159.95.169 --preferred-profile shortlived --cert-name library-ip --agree-tos --register-unsafely-without-email`。
 - 移除入口：把 `compose.override.yaml` 移出项目或改名为不自动加载的文件，再执行 `docker compose up -d --no-build --force-recreate web nginx`，同时移除不再需要的 `library-ip` 证书续期配置。主站与数据库不受此移除影响。
+
+
+### COS 对象路径与公开直连（2026-11-03）
+
+- 采用用户确认的公开可读桶：数据库继续保存 `cover_object_key`（`covers/...jpg` 对象路径），不新增或保存完整 COS URL 字段；`cover_url` 保留原始采集来源。
+- 服务器通过 `COS_PUBLIC_BASE_URL` 拼接路径，默认根据桶名与地域生成 HTTPS COS 默认域名；可替换为已配置好的 HTTPS CDN / 自定义域名，不修改数据库。
+- 页面图片 src 直接是 COS 对象 URL；旧 `/books/<id>/cover/` 入口保留登录检查后跳转，不再由 Django 读取和转发图片数据。
+- 来源改变后旧 key 不匹配，仍暂显示占位符，后台重新下载／入桶；已知错误占位图继续拦截。新对象设置 `public, max-age=31536000, immutable` 缓存策略，内容哈希变化会生成新路径。
+- 本地开发可用同样的公开地址读取封面，无需 COS 访问密钥；上传任务仍仅在服务器使用密钥。
+- 55 项测试通过，数据库模型检查无迁移；部署后验证图库全部直连 COS、匿名读取返回图片、旧入口重定向正确。

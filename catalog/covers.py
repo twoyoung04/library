@@ -3,7 +3,7 @@ import hashlib
 import http.client
 import io
 import ipaddress
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from urllib.request import HTTPHandler, HTTPSHandler, HTTPRedirectHandler, build_opener
 
 from django.conf import settings
@@ -15,6 +15,13 @@ PLACEHOLDER_HASHES = {
     '5c7e44ecf3964cbf4d6609fb1f63f47434774fe70a1047697b6df20ed263f15c',
     'daf7b8338800d61048583a009f6392376a3eb619bd545b587f0e2e96847d3d38',
 }
+
+
+def public_url(key):
+    base = settings.COS_PUBLIC_BASE_URL.rstrip('/')
+    if not base.startswith('https://'):
+        raise ValueError('COS_PUBLIC_BASE_URL must use HTTPS')
+    return base + '/' + quote(key, safe='/')
 
 
 def source_prefix(url):
@@ -116,6 +123,6 @@ def sync_edition(edition, storage):
     body = download_image(image_url)
     key = source_prefix(source) + hashlib.sha256(body).hexdigest() + '.jpg'
     storage.put_object(Bucket=settings.COS_BUCKET, Key=key, Body=body,
-                       ContentType='image/jpeg', CacheControl='private, max-age=86400', EnableMD5=True)
+                       ContentType='image/jpeg', CacheControl='public, max-age=31536000, immutable', EnableMD5=True)
     # A concurrent edit must not attach an old cover to the new source URL.
     return bool(Edition.objects.filter(pk=edition.pk, cover_url=source).update(cover_object_key=key))

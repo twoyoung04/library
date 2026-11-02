@@ -28,13 +28,10 @@ class Edition(models.Model):
     @property
     def cover_display_url(self):
         from django.conf import settings
-        from django.urls import reverse
-        from .covers import current_key
-        if not settings.COS_ENABLED:
-            return self.cover_url
+        from .covers import current_key, public_url
         if current_key(self):
-            return reverse('book_cover', args=[self.pk]) + '?v=' + self.cover_object_key.rsplit('/', 1)[-1][:16]
-        return ''
+            return public_url(self.cover_object_key)
+        return '' if settings.COS_ENABLED else self.cover_url
 
     class Meta:
         ordering = ['title', 'id']

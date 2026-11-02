@@ -105,6 +105,9 @@ CSRF_FAILURE_VIEW = 'library.views.csrf_failure'
 # Credentials belong in the server environment, never in templates or URLs.
 COS_ENABLED = os.environ.get('COS_ENABLED', '0') == '1'
 COS_BUCKET = os.environ.get('COS_BUCKET', 'cover-1307828558')
-COS_REGION = os.environ.get('COS_REGION', '')
+COS_REGION = os.environ.get('COS_REGION', 'ap-shanghai')
 COS_SECRET_ID = os.environ.get('COS_SECRET_ID', '')
 COS_SECRET_KEY = os.environ.get('COS_SECRET_KEY', '')
+
+COS_PUBLIC_BASE_URL = os.environ.get('COS_PUBLIC_BASE_URL') or (
+    f'https://{COS_BUCKET}.cos.{COS_REGION}.myqcloud.com')

@@ -438,22 +438,8 @@ def _import_row(row, number):
 def book_cover(request, pk):
     from django.conf import settings
     from django.http import Http404
-    from .covers import client, current_key, MAX_BYTES
+    from .covers import current_key
     edition = get_object_or_404(Edition, pk=pk)
     if not settings.COS_ENABLED or not current_key(edition):
         raise Http404
-    try:
-        result = client().get_object(Bucket=settings.COS_BUCKET, Key=edition.cover_object_key)
-        stream = result['Body'].get_raw_stream()
-        try:
-            data = stream.read(MAX_BYTES + 1)
-        finally:
-            stream.close()
-        if len(data) > MAX_BYTES:
-            raise ValueError('Oversized cover')
-    except Exception:
-        return HttpResponse(status=502)
-    response = HttpResponse(data, content_type='image/jpeg')
-    response['Cache-Control'] = 'private, max-age=86400'
-    response['X-Content-Type-Options'] = 'nosniff'
-    return response
+    return redirect(edition.cover_display_url)
