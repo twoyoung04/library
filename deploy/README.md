@@ -70,10 +70,24 @@ Nginx 从共享卷加载证书并提供前端静态资源；应用和数据库�
 新库开放写入后不能直接回切旧库，必须先处理新产生的数据。
 观察稳定并确认异地备份可恢复后，再停用 Vercel / Supabase；此前保留旧平台用于回退。
 
-## 当前验证记录
+## 实际部署记录（2026-11-02）
 
-- 网页现有 42 项 Django 测试通过。
-- Compose 配置校验通过；生产环境缺少密钥会拒绝启动。
-- `check --deploy` 仅剩 HSTS 提示；正式域名 HTTPS 验证稳定后再决定启用期限，初期不强制长期缓存。
-- 本机完整镜像构建被 Docker Hub 拉取连接重置阻断，尚未验证容器启动和实际 Nginx 配置加载。
-- 尚未在服务器安装或启动服务，未导入数据、申请证书、修改 DNS 或停用旧平台。
+- 服务器：SSH `library`，项目 `/opt/library`，域名 `lovaime.com`。
+- 已安装官方 Docker Engine / Compose；服务器访问 Docker Hub 超时，采用本机构建 linux/amd64 官方基础镜像后 `docker save --platform linux/amd64 | gzip | ssh ... docker load` 部署。
+- 前端构建使用 Node 24，满足 ZXing 依赖要求；生产强制 HTTPS，测试使用临时 SQLite 且不启用生产重定向。
+- PostgreSQL 17，恢复 14 张 Django 表。1,855 个版本、2,345 册、29 个标签、2 个账号。
+- 最终切换时对源应用表加写锁，并逐表对比完整行内容；一致后安装 `library_migration_readonly` 触发器，拒绝旧库应用表的新增、修改、删除和清空操作。源数据未删除。
+- 原 Vercel / Supabase 项目保留，旧网页写入将报数据库只读错误；统一使用新域名。后续确认稳定再关闭旧项目。
+- 源库只读保护回退：逐表 `DROP TRIGGER library_migration_readonly ON public.<表名>`，最后 `DROP FUNCTION public.library_migration_readonly()`。只能在新服务停止写入、已处理切换后的新增数据后回退。
+- 本地 `.env.local` 已切换到新生产库；SSH 隧道已启动，重启电脑后按根目录 README 重建。
+- 服务器 `.env` 权限 600；独立随机生产密钥。生产环境配置检查仅有初期未启用长期 HSTS 的提示。
+- 容器内 42 项网页测试通过；生产 HTTPS 头识别、登录页、登录重定向和安全 Cookie 检查通过。
+- 已申请 Let's Encrypt 证书（2027-01-31 到期），Nginx HTTPS 配置校验通过。
+- `/etc/cron.d/library-backup`：每日运行备份；`/etc/cron.d/library-cert-renew`：每日检查续期并重载 Nginx。时间使用服务器时区。
+- 初始源快照、新库备份和旧连接配置保存在本机 `backups/server-migration`（不纳入 Git，受限权限）；服务器备份在 `/opt/library/deploy/backups`。已取回一份新库备份。
+- 长期异地备份尚需配置持续复制；当前异地副本为本机手动取回的备份。
+
+- 已在独立临时数据库完成一次恢复演练，实体书数量为 2,345，临时库已删除。
+- Certbot `renew --dry-run` 成功，正式续期 cron 已启用。
+- 服务器本机通过真实域名验证 HTTPS 登录页返回 200（证书校验开启）；公网 443 在云端防火墙放行前仍不可达，待用户调整腾讯云安全组后复测。
+- DNS 权威记录及公共解析已指向 `115.159.95.169`，部分客户端仍可能受旧 DNS 缓存影响。

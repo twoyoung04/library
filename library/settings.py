@@ -14,7 +14,7 @@ if not IS_TEST_RUN:
     for name in ('DATABASE_URL', 'DATABASE_SSLMODE'):
         if local_config.get(name):
             os.environ.setdefault(name, local_config[name])
-IS_PRODUCTION = os.environ.get('DJANGO_ENV') == 'production'
+IS_PRODUCTION = not IS_TEST_RUN and os.environ.get('DJANGO_ENV') == 'production'
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '').strip()
 if not SECRET_KEY:
     if IS_PRODUCTION:
