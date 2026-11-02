@@ -1,0 +1,11 @@
+# Temporary IP entry. Remove this override and recreate web/nginx to disable it.
+services:
+  web:
+    environment:
+      DJANGO_ALLOWED_HOSTS: ${DOMAIN},${TEMP_ACCESS_IP:-115.159.95.169}
+      DJANGO_CSRF_TRUSTED_ORIGINS: https://${DOMAIN},https://${TEMP_ACCESS_IP:-115.159.95.169}
+  nginx:
+    environment:
+      TEMP_ACCESS_IP: ${TEMP_ACCESS_IP:-115.159.95.169}
+    volumes:
+      - ./deploy/nginx.ip.conf.template:/etc/nginx/templates/ip.conf.template:ro

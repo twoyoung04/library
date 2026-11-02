@@ -133,3 +133,13 @@ worker 自动扫描新增、修改及 CSV 导入产生的封面，失败在下�
 - 本机与容器内 52 项测试通过；《1984》《崩盘》《100个句子记完7000个托福单词》登录后 COS 图片读取通过。图库只使用本站地址。
 - 本机恢复记录位于 `backups/cover-recovery/`：候选 JSONL、恢复来源记录、`remaining-covers.csv` 待补清单；不纳入 Git。
 - 用户要求暂不处理域名问题。持续同步恢复后按原方式运行；未找到的候选不伪造、不使用错误封面顶替。
+
+### 临时 IP HTTPS 入口（2026-11-03）
+
+- 地址 `https://115.159.95.169`，HTTP 自动跳转到该 IP 的 HTTPS。域名 Nginx 配置继续保留。
+- `compose.override.yaml` 自动合并，给 web 增加精确 IP Host / CSRF 来源，给 Nginx 增加 `deploy/nginx.ip.conf.template`。无 DEBUG、Cookie 或 HTTPS 安全设置降级。
+- 已使用 Certbot 5.9 为 IP 申请 Let's Encrypt `shortlived` 证书，证书名 `library-ip`，路径 `/etc/letsencrypt/live/library-ip/`。首次证书到期日为 2026-11-09。
+- 已配置每 6 小时检查续期；`renew-cert.sh` 即使另一个证书续期失败，也会检查并重新加载 Nginx，然后保留失败退出状态。IP 证书独立 dry-run 成功。
+- 公网真实 TLS 校验、登录页、静态资源、HTTP 跳转、Secure Cookie 和 CSRF 正反例均通过；IP Host 下登录后的图库及 COS 图片读取通过。
+- 首次在全新服务器启用时，需先让 IP 的 80 端口 server 提供 ACME webroot，再申请证书并启用 TLS server：`docker compose run --rm certbot certonly --webroot -w /var/www/acme --ip-address 115.159.95.169 --preferred-profile shortlived --cert-name library-ip --agree-tos --register-unsafely-without-email`。
+- 移除入口：把 `compose.override.yaml` 移出项目或改名为不自动加载的文件，再执行 `docker compose up -d --no-build --force-recreate web nginx`，同时移除不再需要的 `library-ip` 证书续期配置。主站与数据库不受此移除影响。
