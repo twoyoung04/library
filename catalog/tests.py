@@ -74,6 +74,19 @@ class LibraryFlowTests(TestCase):
         self.assertNotContains(response, 'class="stats"')
         self.assertLessEqual(len(queries), 7)
 
+    def test_book_cards_hide_status_and_empty_tags(self):
+        untagged = Edition.objects.create(title='无标签图书')
+        Copy.objects.create(edition=untagged, status=Copy.Status.READ, location='书架 A')
+        tagged = Edition.objects.create(title='有标签图书')
+        tagged.tags.add(Tag.objects.create(name='文学'))
+        Copy.objects.create(edition=tagged)
+
+        cards = self.client.get(reverse('book_list'), {'fragment': 'cards'}).json()['cards']
+        self.assertNotIn('未加标签', cards)
+        self.assertNotIn('已读', cards)
+        self.assertIn('<div class="book-meta"><span>书架 A</span></div>', cards)
+        self.assertEqual(cards.count('class="book-card-tags"'), 1)
+
     def test_book_list_sort_options_order_copies_and_keep_missing_metadata_last(self):
         alpha = Edition.objects.create(title='Alpha', published_year=1999)
         beta = Edition.objects.create(title='Beta', published_year=2020)
