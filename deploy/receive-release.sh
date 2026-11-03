@@ -9,7 +9,8 @@ trap 'rm -rf "$stage"' EXIT
 tar -xf - -C "$stage" source.tar.gz revision
 revision=$(<"$stage/revision")
 [[ "$revision" =~ ^[a-f0-9]{40}$ ]]
-tar -xzf "$stage/source.tar.gz" -C "$stage"
+# Keep tracked file modes so the non-root container user can read source files.
+tar --same-permissions -xzf "$stage/source.tar.gz" -C "$stage"
 sudo docker cp "$(sudo docker compose ps -q web):/app/catalog/static/catalog/vendor/lang/eng.traineddata.gz" \
     "$stage/frontend/.eng-4.0.0-fast.traineddata.gz"
 build=(sudo docker build --pull=false --build-arg PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple)
