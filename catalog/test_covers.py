@@ -88,6 +88,22 @@ class CoverTests(TestCase):
         self.assertTrue(sync_edition(e, Mock()))
         download.assert_called_once_with('https://img2.doubanio.com/original.jpg')
 
+    @patch('catalog.lookup.library_cover_candidates')
+    @patch('catalog.covers.download_image', side_effect=[ValueError('placeholder'), b'jpeg'])
+    def test_sync_refreshes_library_signature_and_tries_next_cover(self, download, lookup):
+        source = 'https://tc-cover-prod.oss-cn-shenzhen.aliyuncs.com/cover.jpg'
+        fallback = 'https://book-resource.dataesb.com/cover/example.jpg'
+        lookup.return_value = iter([(source + '?Expires=123', '成都图书馆', {}),
+                                    (fallback, '成都图书馆封面数据源', {})])
+        edition = Edition.objects.create(isbn='9787544258975', cover_url=source)
+        self.assertTrue(sync_edition(edition, Mock()))
+        lookup.assert_called_once_with(edition.isbn)
+        self.assertEqual([call.args[0] for call in download.call_args_list],
+                         [source + '?Expires=123', fallback])
+        edition.refresh_from_db()
+        self.assertEqual(edition.cover_url, source)
+        self.assertTrue(edition.cover_object_key.startswith(source_prefix(source)))
+
     @patch('catalog.covers.download_image', return_value=b'jpeg')
     def test_sync_stores_key_and_keeps_original_source(self, download):
         source = 'https://example.com/cover.jpg'

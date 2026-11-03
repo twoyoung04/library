@@ -12,6 +12,8 @@ from PIL import Image
 MAX_BYTES = 8 * 1024 * 1024
 Image.MAX_IMAGE_PIXELS = 25_000_000
 PLACEHOLDER_HASHES = {
+    '21cb9e3bd2f682363e87ee8fbddb3e0b2d8b6ab64741f90a707e72eb0c99c336',
+    'd58090d9e82d78136778f5386e0bebea30ce47a77b65dc83fce3fa4a6207947e',
     '5c7e44ecf3964cbf4d6609fb1f63f47434774fe70a1047697b6df20ed263f15c',
     'daf7b8338800d61048583a009f6392376a3eb619bd545b587f0e2e96847d3d38',
 }
@@ -111,6 +113,7 @@ def download_image(url):
 
 
 def sync_edition(edition, storage):
+    from .lookup import CHENGDU_COVER_HOST, library_cover_candidates
     from .models import Edition
     if not edition.cover_url or current_key(edition):
         return False
@@ -120,7 +123,17 @@ def sync_edition(edition, storage):
         from .lookup import lookup_wuming
         metadata = lookup_wuming(edition.isbn) or {}
         image_url = metadata.get('cover_url') or source
-    body = download_image(image_url)
+    if urlsplit(source).hostname == CHENGDU_COVER_HOST and edition.isbn:
+        for candidate, _, _ in library_cover_candidates(edition.isbn):
+            try:
+                body = download_image(candidate)
+            except (OSError, ValueError):
+                continue
+            break
+        else:
+            raise ValueError('No usable library cover')
+    else:
+        body = download_image(image_url)
     key = source_prefix(source) + hashlib.sha256(body).hexdigest() + '.jpg'
     storage.put_object(Bucket=settings.COS_BUCKET, Key=key, Body=body,
                        ContentType='image/jpeg', CacheControl='public, max-age=31536000, immutable', EnableMD5=True)

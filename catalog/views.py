@@ -49,7 +49,7 @@ def _add_tags(edition, names):
 def _book_metadata(isbn):
     provider_config = os.environ.get('SHOWAPI_APP_KEY', '') + '|' + os.environ.get('JUHE_ISBN_KEY', '')
     provider_version = hashlib.sha256(provider_config.encode()).hexdigest()[:12]
-    key = f'book-lookup:v5:{provider_version}:{isbn}'
+    key = f'book-lookup:v6:{provider_version}:{isbn}'
     result = cache.get(key)
     if result is None:
         result = lookup_book(isbn) or {}

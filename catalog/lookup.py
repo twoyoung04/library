@@ -3,13 +3,13 @@ import os
 import re
 from html import unescape
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from .isbn import normalize_isbn
 
 
-def fetch_json(url, form=None):
+def fetch_json(url, form=None, *, jsonp=False):
     headers = {'User-Agent': 'PersonalLibrary/1.0 (private catalog)', 'Accept': 'application/json'}
     if form is not None:
         headers['Content-Type'] = 'application/x-www-form-urlencoded'
@@ -17,6 +17,9 @@ def fetch_json(url, form=None):
                       headers=headers)
     try:
         with urlopen(request, timeout=5) as response:
+            if jsonp:
+                raw = response.read(300_000).decode('utf-8').strip().removesuffix(';').strip()
+                return json.loads(raw[1:-1] if raw.startswith('(') and raw.endswith(')') else raw)
             return json.load(response)
     except (HTTPError, URLError, TimeoutError, ValueError):
         return None
@@ -166,6 +169,39 @@ def lookup_cdclib(isbn):
     return None
 
 
+CHENGDU_COVER_HOST = 'tc-cover-prod.oss-cn-shenzhen.aliyuncs.com'
+
+
+def library_cover_candidates(isbn):
+    """Yield exact-ISBN covers in the order used by Chengdu Library's catalog."""
+    if not isbn.startswith(('978', '979')):
+        return
+    query = urlencode({'isbns': isbn})
+    entries = fetch_json('https://opac.cdclib.cn/opac/dss/getCover?' + query)
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict) or not _same_isbn(entry.get('isbn'), isbn):
+            continue
+        if str(entry.get('isDefaultCover')).lower() in ('true', '1') or not entry.get('ossUrl'):
+            continue
+        image = _cover(entry.get('signUrl'))
+        if (urlsplit(image).hostname == CHENGDU_COVER_HOST
+                and '3593b961f9094da9887a8cbb2105d18c' not in image):
+            yield image, '成都图书馆', entry
+
+    url = 'https://book-resource.dataesb.com/websearch/metares?' + urlencode({
+        'glc': 'P2SC028016', 'cmdACT': 'getImages', 'type': '0', 'isbns': isbn,
+    })
+    response = fetch_json(url, jsonp=True)
+    entries = response.get('result') if isinstance(response, dict) else None
+    for entry in entries if isinstance(entries, list) else []:
+        if (not isinstance(entry, dict) or not _same_isbn(entry.get('isbn'), isbn)
+                or str(entry.get('status')) != '0'):
+            continue
+        for field in ('resourceLink', 'coverlink'):
+            if image := _cover(entry.get(field)):
+                yield image, '成都图书馆封面数据源', {}
+
+
 def lookup_showapi(isbn):
     key = os.environ.get('SHOWAPI_APP_KEY', '').strip()
     if not key or not isbn.startswith('978'):
@@ -218,8 +254,19 @@ def lookup_book(isbn):
     for provider in domestic + international:
         result = provider(isbn)
         if result and result.get('title'):
-            return result
-    return None
+            break
+    else:
+        result = None
+    if result and result.get('cover_url'):
+        return result
+    for image, source, entry in library_cover_candidates(isbn):
+        title = _names(entry.get('title'))
+        if result or title:
+            if urlsplit(image).hostname == CHENGDU_COVER_HOST:
+                image = urlsplit(image)._replace(query='', fragment='').geturl()
+            return {**(result or {'title': title, 'author': _names(entry.get('author')),
+                                 'source': source}), 'cover_url': image}
+    return result
 
 
 def lookup_periodical(ean):
@@ -299,7 +346,7 @@ def _cover(value):
         return ''
     if value.startswith('http://'):
         value = 'https://' + value[7:]
-    return value if value.startswith('https://') else ''
+    return value if value.startswith('https://') and 'book-default-lpic' not in value else ''
 
 
 def _plain(value):

@@ -12,7 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .isbn import normalize_isbn
-from .lookup import (lookup_book, lookup_cdclib, lookup_cp, lookup_douban, lookup_juhe,
+from .lookup import (library_cover_candidates, lookup_book, lookup_cdclib, lookup_cp, lookup_douban, lookup_juhe,
                      lookup_neodb, lookup_showapi, lookup_wuming)
 from .models import Copy, Edition, Tag
 
@@ -439,11 +439,41 @@ class LibraryFlowTests(TestCase):
         self.assertIn('searchWay=isbn', fetch.call_args.args[0])
         self.assertIsNone(lookup_cdclib('9787208061644'))
 
+    @patch('catalog.lookup.fetch_json')
+    @patch('catalog.lookup.lookup_wuming', return_value={'title': '已有书名', 'source': '无名图书'})
+    def test_library_cover_fills_missing_cover_without_replacing_metadata(self, wuming, fetch):
+        isbn = '9787544258975'
+        cover = 'https://tc-cover-prod.oss-cn-shenzhen.aliyuncs.com/cover.jpg'
+        fetch.return_value = [
+            {'isbn': isbn, 'ossUrl': 'default.jpg', 'signUrl': cover, 'isDefaultCover': True},
+            {'isbn': '9787107313325', 'ossUrl': 'other.jpg', 'signUrl': cover},
+            {'isbn': isbn, 'ossUrl': 'cover.jpg', 'signUrl': cover + '?Expires=123',
+             'title': '图书馆书名'},
+        ]
+        self.assertEqual(lookup_book(isbn), {
+            'title': '已有书名', 'source': '无名图书', 'cover_url': cover,
+        })
+        fetch.assert_called_once()
+
+    @patch('catalog.lookup.fetch_json')
+    def test_library_cover_falls_back_to_dataesb(self, fetch):
+        isbn = '9787544258975'
+        cover = 'https://book-resource.dataesb.com/cover/example.jpg'
+        fetch.side_effect = [None, {'result': [
+            {'isbn': '9787107313325', 'status': 0, 'resourceLink': cover},
+            {'isbn': isbn, 'status': 1, 'resourceLink': cover},
+            {'isbn': isbn, 'status': 0, 'resourceLink': cover},
+        ]}]
+        self.assertEqual(list(library_cover_candidates(isbn)), [
+            (cover, '成都图书馆封面数据源', {}),
+        ])
+        self.assertTrue(fetch.call_args.kwargs['jsonp'])
+
     @patch('catalog.lookup.lookup_wuming', return_value=None)
     @patch('catalog.lookup.lookup_neodb', return_value=None)
     @patch('catalog.lookup.lookup_cp', return_value=None)
     @patch('catalog.lookup.lookup_douban', return_value=None)
-    @patch('catalog.lookup.lookup_cdclib', return_value={'title': '爱弥儿', 'source': '成都图书馆'})
+    @patch('catalog.lookup.lookup_cdclib', return_value={'title': '爱弥儿', 'cover_url': 'https://example.com/cover.jpg', 'source': '成都图书馆'})
     @patch('catalog.lookup.lookup_google')
     def test_domestic_library_hit_precedes_google(self, google, cdclib, douban, cp, neodb, wuming):
         self.assertEqual(lookup_book('9787107313325')['source'], '成都图书馆')
@@ -475,7 +505,7 @@ class LibraryFlowTests(TestCase):
         self.assertEqual(result['source'], '聚合数据')
         self.assertIsNone(lookup_juhe('9787208061644'))
 
-    @patch('catalog.lookup.lookup_wuming', return_value={'title': '国内书', 'source': '无名图书'})
+    @patch('catalog.lookup.lookup_wuming', return_value={'title': '国内书', 'cover_url': 'https://example.com/cover.jpg', 'source': '无名图书'})
     @patch('catalog.lookup.lookup_showapi')
     @patch('catalog.lookup.lookup_juhe')
     def test_chinese_isbn_stops_after_first_domestic_hit(self, juhe, showapi, wuming):
@@ -485,7 +515,7 @@ class LibraryFlowTests(TestCase):
         juhe.assert_not_called()
 
     @patch('catalog.lookup.lookup_wuming', return_value=None)
-    @patch('catalog.lookup.lookup_neodb', return_value={'title': '培根随笔全集', 'source': 'NeoDB'})
+    @patch('catalog.lookup.lookup_neodb', return_value={'title': '培根随笔全集', 'cover_url': 'https://example.com/cover.jpg', 'source': 'NeoDB'})
     @patch('catalog.lookup.lookup_cp')
     @patch('catalog.lookup.lookup_google')
     def test_neodb_hit_precedes_other_sources(self, google, cp, neodb, wuming):
@@ -495,7 +525,7 @@ class LibraryFlowTests(TestCase):
         cp.assert_not_called()
         google.assert_not_called()
 
-    @patch('catalog.lookup.lookup_wuming', return_value={'title': '国内书', 'source': '无名图书'})
+    @patch('catalog.lookup.lookup_wuming', return_value={'title': '国内书', 'cover_url': 'https://example.com/cover.jpg', 'source': '无名图书'})
     @patch('catalog.lookup.lookup_showapi')
     @patch('catalog.lookup.lookup_juhe')
     @patch('catalog.lookup.lookup_google')
