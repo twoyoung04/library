@@ -29,18 +29,6 @@ jobs:
           docker run --rm -e DJANGO_SECRET_KEY=ci-only library-web:ci python manage.py test catalog
           docker run --rm -e DJANGO_SECRET_KEY=ci-only -e DATABASE_URL=postgresql://ci:ci@localhost/ci library-web:ci python manage.py makemigrations --check --dry-run
           git diff --check
-      - name: Bundle release
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        run: |
-          mkdir release
-          docker save library-web:ci library-nginx:ci | gzip -1 > release/images.tar.gz
-          tar -cf release/config.tar compose.yaml deploy/nginx.http.conf.template deploy/nginx.https.conf.template deploy/nginx.ip.conf.template deploy/backup.sh deploy/renew-cert.sh
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        with:
-          name: release
-          path: release/
-          retention-days: 1
 
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -51,10 +39,9 @@ jobs:
       group: library-production
       cancel-in-progress: false
     steps:
-      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          name: release
-          path: release
+          persist-credentials: false
       - name: Deploy over SSH
         env:
           DEPLOY_KEY: ${{ secrets.LIBRARY_DEPLOY_KEY }}
@@ -69,8 +56,9 @@ jobs:
           test -n "$DEPLOY_TARGET"
           printf '%s\n' "$DEPLOY_KEY" > "$key_dir/key"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$key_dir/known_hosts"
-          printf '%s\n' "$GITHUB_SHA" > release/revision
-          tar -C release -cf - config.tar images.tar.gz revision |
+          printf '%s\n' "$GITHUB_SHA" > "$key_dir/revision"
+          git archive --format=tar.gz HEAD > "$key_dir/source.tar.gz"
+          tar -C "$key_dir" -cf - source.tar.gz revision |
             ssh -T -i "$key_dir/key" -o IdentitiesOnly=yes -o BatchMode=yes \
               -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$key_dir/known_hosts" \
               -o ConnectTimeout=15 -o ServerAliveInterval=15 "$DEPLOY_TARGET"

@@ -6,14 +6,18 @@ exec 9>.release.lock
 flock -w 600 9
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-tar -xf - -C "$stage" config.tar images.tar.gz revision
+tar -xf - -C "$stage" source.tar.gz revision
 revision=$(<"$stage/revision")
 [[ "$revision" =~ ^[a-f0-9]{40}$ ]]
-tar -xf "$stage/config.tar" -C "$stage"
-sudo docker load -i "$stage/images.tar.gz"
+tar -xzf "$stage/source.tar.gz" -C "$stage"
+sudo docker cp "$(sudo docker compose ps -q web):/app/catalog/static/catalog/vendor/lang/eng.traineddata.gz" \
+    "$stage/frontend/.eng-4.0.0-fast.traineddata.gz"
+sudo docker build --pull=false --target app -t library-web:ci "$stage"
+sudo docker build --pull=false --target proxy -t library-nginx:ci "$stage"
 
 compose=(sudo docker compose --profile covers)
-for file in compose.yaml deploy/nginx.{http,https,ip}.conf.template deploy/{backup,renew-cert}.sh; do
+files=(compose.yaml deploy/nginx.{http,https,ip}.conf.template deploy/{backup,renew-cert}.sh)
+for file in "${files[@]}"; do
     mkdir -p "$stage/previous/$(dirname "$file")"
     cp "$file" "$stage/previous/$file"
 done
@@ -28,8 +32,9 @@ restore() {
     sudo docker tag library-web:previous library-web:latest
     sudo docker tag library-nginx:previous library-nginx:latest
 }
-cp "$stage/compose.yaml" .
-cp "$stage"/deploy/* deploy/
+for file in "${files[@]}"; do
+    cp "$stage/$file" "$file"
+done
 if ! "${compose[@]}" config --quiet ||
    ! "${compose[@]}" run --rm -T --no-deps web python manage.py check; then
     restore
@@ -47,9 +52,13 @@ fi
 smoke() {
     local domain
     domain=$("${compose[@]}" config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["nginx"]["environment"]["DOMAIN"])')
-    "${compose[@]}" exec -T nginx nginx -t &&
-      curl -fsS --retry 6 --retry-all-errors --max-time 10 --resolve "$domain:443:127.0.0.1" "https://$domain/login/" -o /dev/null &&
-      curl -fsS --max-time 10 --resolve "$domain:443:127.0.0.1" "https://$domain/static/catalog/scan.bundle.js" -o /dev/null
+    "${compose[@]}" exec -T nginx nginx -t || return 1
+    local path status
+    for path in /login/ /static/catalog/scan.bundle.js; do
+        status=$(curl -fsS --retry 6 --retry-all-errors --max-time 10 \
+            --resolve "$domain:443:127.0.0.1" "https://$domain$path" -o /dev/null -w '%{http_code}') || return 1
+        [[ "$status" == 200 ]] || return 1
+    done
 }
 if ! "${compose[@]}" up -d --no-build --force-recreate web nginx covers || ! smoke; then
     if (( migration_needed == 0 )); then

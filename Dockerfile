@@ -3,7 +3,10 @@ WORKDIR /build
 COPY package*.json ./
 RUN npm ci
 COPY frontend ./frontend
-RUN npm run build
+RUN if [ -s frontend/.eng-4.0.0-fast.traineddata.gz ]; then \
+      mkdir -p catalog/static/catalog/vendor/lang && \
+      cp frontend/.eng-4.0.0-fast.traineddata.gz catalog/static/catalog/vendor/lang/eng.traineddata.gz; \
+    fi && npm run build
 
 FROM python:3.12-slim-bookworm AS app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
