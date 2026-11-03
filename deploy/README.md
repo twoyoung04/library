@@ -153,3 +153,11 @@ worker 自动扫描新增、修改及 CSV 导入产生的封面，失败在下�
 - 来源改变后旧 key 不匹配，仍暂显示占位符，后台重新下载／入桶；已知错误占位图继续拦截。新对象设置 `public, max-age=31536000, immutable` 缓存策略，内容哈希变化会生成新路径。
 - 本地开发可用同样的公开地址读取封面，无需 COS 访问密钥；上传任务仍仅在服务器使用密钥。
 - 55 项测试通过，数据库模型检查无迁移；部署后验证图库全部直连 COS、匿名读取返回图片、旧入口重定向正确。
+
+### GitHub Actions 发布
+
+Pull Request 构建应用和 Nginx 镜像，并运行 Django 测试与迁移检查。推送到 `main` 或在该分支手动运行工作流时，检查通过后会把镜像传到服务器发布。GitHub Actions 页面可查看结果。
+
+服务器 `/opt/library/deploy/receive-release.sh` 是专用 SSH 密钥的入口。仓库使用 `LIBRARY_DEPLOY_KEY`、`LIBRARY_DEPLOY_KNOWN_HOSTS` 和 `LIBRARY_DEPLOY_TARGET` 三个 Actions Secrets。更新入口脚本时通过服务器管理 SSH 安装新版。
+
+每次发布保存数据库备份、执行所需迁移并检查登录页和扫码资源。发布串行执行。无数据库迁移的发布在检查失败时恢复上一版镜像和配置。执行迁移后如检查失败，结合备份和迁移记录决定回退方式。服务器 `.deployed-revision` 保存最后一次成功发布的提交。

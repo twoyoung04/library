@@ -1,0 +1,76 @@
+name: CI/CD
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: library-ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build application and proxy
+        run: |
+          docker build --target app -t library-web:ci .
+          docker build --target proxy -t library-nginx:ci .
+      - name: Check application
+        run: |
+          docker run --rm -e DJANGO_SECRET_KEY=ci-only library-web:ci python manage.py test catalog
+          docker run --rm -e DJANGO_SECRET_KEY=ci-only -e DATABASE_URL=postgresql://ci:ci@localhost/ci library-web:ci python manage.py makemigrations --check --dry-run
+          git diff --check
+      - name: Bundle release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir release
+          docker save library-web:ci library-nginx:ci | gzip -1 > release/images.tar.gz
+          tar -cf release/config.tar compose.yaml deploy/nginx.http.conf.template deploy/nginx.https.conf.template deploy/nginx.ip.conf.template deploy/backup.sh deploy/renew-cert.sh
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        with:
+          name: release
+          path: release/
+          retention-days: 1
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      group: library-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+      - name: Deploy over SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.LIBRARY_DEPLOY_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.LIBRARY_DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_TARGET: ${{ secrets.LIBRARY_DEPLOY_TARGET }}
+        run: |
+          umask 077
+          key_dir=$(mktemp -d)
+          trap 'rm -rf "$key_dir"' EXIT
+          test -n "$DEPLOY_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          test -n "$DEPLOY_TARGET"
+          printf '%s\n' "$DEPLOY_KEY" > "$key_dir/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$key_dir/known_hosts"
+          printf '%s\n' "$GITHUB_SHA" > release/revision
+          tar -C release -cf - config.tar images.tar.gz revision |
+            ssh -T -i "$key_dir/key" -o IdentitiesOnly=yes -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$key_dir/known_hosts" \
+              -o ConnectTimeout=15 -o ServerAliveInterval=15 "$DEPLOY_TARGET"
