@@ -12,6 +12,7 @@ FROM python:3.12-slim-bookworm AS app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY requirements.txt ./
+ARG PIP_INDEX_URL=https://pypi.org/simple
 RUN pip install --no-cache-dir -r requirements.txt && useradd --uid 10001 --create-home library
 COPY manage.py ./
 COPY library ./library

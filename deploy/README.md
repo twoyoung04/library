@@ -156,7 +156,7 @@ worker 自动扫描新增、修改及 CSV 导入产生的封面，失败在下�
 
 ### GitHub Actions 发布
 
-Pull Request 构建应用和 Nginx 镜像，并运行 Django 测试与迁移检查。推送到 `main` 或在该分支手动运行工作流时，检查通过后会把该提交的源码包传到服务器构建并发布。服务器预装 Dockerfile 中的三个基础镜像，并复用当前容器里的 OCR 语言数据。修改基础镜像版本时，先在服务器预装新版本。GitHub Actions 页面可查看结果。
+Pull Request 构建应用和 Nginx 镜像，并运行 Django 测试与迁移检查。推送到 `main` 或在该分支手动运行工作流时，检查通过后会把该提交的源码包传到服务器构建并发布。服务器预装 Dockerfile 中的三个基础镜像，并复用当前容器里的 OCR 语言数据。服务器构建的 Python 依赖使用腾讯云 PyPI 镜像，GitHub Actions 构建使用 PyPI。修改基础镜像版本时，先在服务器预装新版本。GitHub Actions 页面可查看结果。
 
 服务器 `/opt/library/deploy/receive-release.sh` 是专用 SSH 密钥的入口。仓库使用 `LIBRARY_DEPLOY_KEY`、`LIBRARY_DEPLOY_KNOWN_HOSTS` 和 `LIBRARY_DEPLOY_TARGET` 三个 Actions Secrets。更新入口脚本时通过服务器管理 SSH 安装新版。
 

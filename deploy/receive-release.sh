@@ -12,8 +12,9 @@ revision=$(<"$stage/revision")
 tar -xzf "$stage/source.tar.gz" -C "$stage"
 sudo docker cp "$(sudo docker compose ps -q web):/app/catalog/static/catalog/vendor/lang/eng.traineddata.gz" \
     "$stage/frontend/.eng-4.0.0-fast.traineddata.gz"
-sudo docker build --pull=false --target app -t library-web:ci "$stage"
-sudo docker build --pull=false --target proxy -t library-nginx:ci "$stage"
+build=(sudo docker build --pull=false --build-arg PIP_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple)
+"${build[@]}" --target app -t library-web:ci "$stage"
+"${build[@]}" --target proxy -t library-nginx:ci "$stage"
 
 compose=(sudo docker compose --profile covers)
 files=(compose.yaml deploy/nginx.{http,https,ip}.conf.template deploy/{backup,renew-cert}.sh)
