@@ -7,6 +7,7 @@ urlpatterns = [
     path('books/<int:pk>/cover/', views.book_cover, name='book_cover'),
     path('new/', views.book_new, name='book_new'),
     path('books/<int:pk>/', views.book_detail, name='book_detail'),
+    path('covers/<int:pk>/', views.edition_cover_proxy, name='edition_cover_proxy'),
     path('books/<int:pk>/edit/', views.book_edit, name='book_edit'),
     path('copies/<int:pk>/edit/', views.copy_edit, name='copy_edit'),
     path('copies/<int:pk>/delete/', views.copy_delete, name='copy_delete'),

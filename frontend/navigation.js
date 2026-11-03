@@ -14,12 +14,6 @@ function syncCatalogControls() {
 document.addEventListener('DOMContentLoaded', syncCatalogControls);
 mobileShelf.addEventListener('change', syncCatalogControls);
 
-document.addEventListener('change', event => {
-  if (event.target.matches('.collection-workspace .filters select')) {
-    event.target.form.requestSubmit();
-  }
-});
-
 document.addEventListener('turbo:before-cache', () => {
   saveBookList();
 });
