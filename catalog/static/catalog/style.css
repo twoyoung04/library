@@ -105,3 +105,7 @@
   .catalog-controls .filters{margin:8px 0 0}
   .catalog-controls .mobile-export{display:block;padding:10px 2px 2px;color:#3d7b4b;font-size:11px;font-weight:700}
 }
+
+/* Shared library mark: preserve the square silhouette at every size. */
+.brand-mark{display:block;width:36px;height:36px;flex-shrink:0;border-radius:9px}
+img.login-icon{display:block;width:64px;height:64px;padding:0;object-fit:contain;border-radius:16px}

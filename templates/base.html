@@ -7,14 +7,15 @@
   <meta name="theme-color" content="#18312a">
   <meta name="turbo-prefetch" content="false">
   <title>{% block title %}我的藏书{% endblock %} · 我的藏书</title>
-  <link rel="stylesheet" href="{% static 'catalog/style.css' %}?v=20261103-cover-cards" data-turbo-track="reload">
+  <link rel="icon" type="image/svg+xml" href="{% static 'catalog/logo.svg' %}">
+  <link rel="stylesheet" href="{% static 'catalog/style.css' %}?v=20261105-library-logo" data-turbo-track="reload">
   <script src="{% static 'catalog/navigation.bundle.js' %}?v=20261001-smooth-shelf" defer data-turbo-track="reload"></script>
   {% block head %}{% endblock %}
 </head>
 <body class="app-body {% block body_class %}{% endblock %}">
   <div class="app-shell">
     <aside class="sidebar">
-      <a class="brand" href="{% url 'book_list' %}"><span class="brand-mark">▥</span><span>我的藏书<small>PERSONAL LIBRARY</small></span></a>
+      <a class="brand" href="{% url 'book_list' %}"><img class="brand-mark" src="{% static 'catalog/logo.svg' %}" width="36" height="36" alt=""><span>我的藏书<small>PERSONAL LIBRARY</small></span></a>
       <nav class="side-nav" aria-label="主导航">
         <a href="{% url 'book_list' %}" class="{% if request.resolver_match.url_name == 'book_list' %}active{% endif %}">⌑ <span>全部藏书</span></a>
         <a href="{% url 'book_new' %}" class="{% if request.resolver_match.url_name == 'book_new' %}active{% endif %}">＋ <span>录入新书</span></a>
