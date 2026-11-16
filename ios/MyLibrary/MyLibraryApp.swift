@@ -39,7 +39,6 @@ struct MainTabs: View {
 
 struct LoginView: View {
     @EnvironmentObject private var store: LibraryStore
-    @State private var server = ServerConfig.currentURL()
     @State private var username = ""
     @State private var password = ""
     @State private var working = false
@@ -59,10 +58,6 @@ struct LoginView: View {
                     Text("随手录入，慢慢收藏。")
                         .font(.subheadline).foregroundStyle(Palette.muted)
                     VStack(spacing: 14) {
-                        TextField("服务地址 · https://…", text: $server)
-                            .textContentType(.URL).keyboardType(.URL).textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                        Divider()
                         TextField("用户名", text: $username)
                             .textContentType(.username).textInputAutocapitalization(.never)
                         Divider()
@@ -73,7 +68,7 @@ struct LoginView: View {
                     Button {
                         Task {
                             working = true; defer { working = false }
-                            do { try await store.login(server: server, username: username, password: password) }
+                            do { try await store.login(username: username, password: password) }
                             catch { message = error.localizedDescription }
                         }
                     } label: {
@@ -82,7 +77,7 @@ struct LoginView: View {
                     }
                     .buttonStyle(.plain).foregroundStyle(.white)
                     .background(Palette.ink, in: RoundedRectangle(cornerRadius: 16))
-                    .disabled(working || server.isEmpty || username.isEmpty || password.isEmpty)
+                    .disabled(working || username.isEmpty || password.isEmpty)
                     Spacer(minLength: 40)
                 }
                 .padding(28)

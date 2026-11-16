@@ -230,7 +230,6 @@ struct SettingsView: View {
             Form {
                 Section("账号") {
                     LabeledContent("用户名", value: store.username)
-                    LabeledContent("服务", value: store.server)
                 }
                 Section("同步") {
                     LabeledContent("待同步", value: "\(store.pending.count) 册")

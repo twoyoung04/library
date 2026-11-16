@@ -3,20 +3,11 @@ import SwiftUI
 
 enum ServerConfig {
     static let defaultURL = "https://wuminglib.site"
-
-    static func currentURL() -> String {
-        let saved = UserDefaults.standard.string(forKey: "libraryServer")
-        if saved == "https://lovaime.com" {
-            UserDefaults.standard.set(defaultURL, forKey: "libraryServer")
-            return defaultURL
-        }
-        return saved ?? defaultURL
-    }
 }
 
 @MainActor
 final class LibraryStore: ObservableObject {
-    @Published var server = ServerConfig.currentURL()
+    let server = ServerConfig.defaultURL
     @Published var token = TokenStore.read()
     @Published var username = UserDefaults.standard.string(forKey: "libraryUsername") ?? ""
     @Published var items: [BookItem] = []
@@ -46,17 +37,15 @@ final class LibraryStore: ObservableObject {
            let cached = try? JSONDecoder().decode([Int: BookInfo].self, from: data) { cachedDetails = cached }
     }
 
-    func login(server rawServer: String, username: String, password: String) async throws {
-        let normalized = rawServer.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let response: LoginResponse = try await APIClient(server: normalized).call(
+    func login(username: String, password: String) async throws {
+        let response: LoginResponse = try await APIClient(server: server).call(
             "api/mobile/login/", method: "POST", body: Credentials(username: username, password: password), authorized: false)
         // A different account must never see another account's local book cache.
         items = []; pending = []; cachedDetails = [:]; persist()
-        server = normalized
         self.username = response.username
         token = response.token
         TokenStore.save(response.token)
-        UserDefaults.standard.set(normalized, forKey: "libraryServer")
+        UserDefaults.standard.removeObject(forKey: "libraryServer")
         UserDefaults.standard.set(response.username, forKey: "libraryUsername")
         await refresh()
     }
