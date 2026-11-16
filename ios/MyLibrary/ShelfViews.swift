@@ -3,46 +3,77 @@ import SwiftUI
 struct ShelfView: View {
     @EnvironmentObject private var store: LibraryStore
     @State private var showFilters = false
+    @FocusState private var searchFocused: Bool
+
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").foregroundStyle(Palette.muted)
+            TextField("书名、作者、ISBN、标签、位置", text: $store.search)
+                .focused($searchFocused)
+                .submitLabel(.search)
+            if !store.search.isEmpty {
+                Button {
+                    store.search = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.muted)
+                }
+                .accessibilityLabel("清除搜索")
+            }
+        }
+        .padding(.horizontal, 15)
+        .frame(height: 46)
+        .background(.white, in: RoundedRectangle(cornerRadius: 14))
+    }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 Palette.background.ignoresSafeArea()
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                         HStack(alignment: .firstTextBaseline) {
                             Text("我的书库").font(.system(size: 35, weight: .semibold, design: .serif))
                             Spacer()
                             Text("\(store.total) 册").font(.subheadline).foregroundStyle(Palette.muted)
                         }
-                        .padding(.bottom, 8)
-                        if !store.pending.isEmpty {
-                            Label("\(store.pending.count) 册等待同步，点击重试", systemImage: "arrow.triangle.2.circlepath")
-                                .font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(14).background(Color.orange.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
-                                .onTapGesture { Task { await store.syncPending() } }
-                        }
-                        if let error = store.errorMessage, !store.items.isEmpty {
-                            Text("当前显示已缓存书目 · \(error)")
-                                .font(.caption).foregroundStyle(Palette.muted)
-                        }
-                        if store.items.isEmpty && !store.isLoading {
-                            ContentUnavailableView(store.search.isEmpty ? "书库还是空的" : "没有找到图书",
-                                                   systemImage: "books.vertical",
-                                                   description: Text(store.search.isEmpty ? "切换到录入，扫描第一本书。" : "试试其他关键词或筛选条件。"))
-                                .padding(.top, 80)
-                        }
-                        ForEach(store.items) { item in
-                            NavigationLink(value: item.edition.id) {
-                                BookRow(item: item)
+                        .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 4)
+                        Section {
+                            LazyVStack(alignment: .leading, spacing: 14) {
+                                if !store.pending.isEmpty {
+                                    Label("\(store.pending.count) 册等待同步，点击重试", systemImage: "arrow.triangle.2.circlepath")
+                                        .font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(14).background(Color.orange.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
+                                        .onTapGesture { Task { await store.syncPending() } }
+                                }
+                                if let error = store.errorMessage, !store.items.isEmpty {
+                                    Text("当前显示已缓存书目 · \(error)")
+                                        .font(.caption).foregroundStyle(Palette.muted)
+                                }
+                                if store.items.isEmpty && !store.isLoading {
+                                    ContentUnavailableView(store.search.isEmpty ? "书库还是空的" : "没有找到图书",
+                                                           systemImage: "books.vertical",
+                                                           description: Text(store.search.isEmpty ? "切换到录入，扫描第一本书。" : "试试其他关键词或筛选条件。"))
+                                        .padding(.top, 80)
+                                }
+                                ForEach(store.items) { item in
+                                    NavigationLink(value: item.edition.id) {
+                                        BookRow(item: item)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .onAppear { Task { await store.loadMoreIfNeeded(item) } }
+                                }
+                                if store.isLoading { ProgressView().frame(maxWidth: .infinity).padding(24) }
                             }
-                            .buttonStyle(.plain)
-                            .onAppear { Task { await store.loadMoreIfNeeded(item) } }
+                            .padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 30)
+                        } header: {
+                            searchBar
+                                .padding(.horizontal, 18).padding(.vertical, 9)
+                                .frame(maxWidth: .infinity)
+                                .background(Palette.background)
                         }
-                        if store.isLoading { ProgressView().frame(maxWidth: .infinity).padding(24) }
                     }
-                    .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 30)
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .refreshable { await store.refresh() }
             }
             .navigationDestination(for: Int.self) { BookDetailView(bookId: $0) }
@@ -53,7 +84,6 @@ struct ShelfView: View {
                     }
                 }
             }
-            .searchable(text: $store.search, prompt: "书名、作者、ISBN、标签、位置")
             .task(id: store.search) {
                 try? await Task.sleep(for: .milliseconds(260))
                 guard !Task.isCancelled else { return }
