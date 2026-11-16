@@ -5,19 +5,22 @@ from django.conf import settings
 
 
 class Tag(models.Model):
-    name = models.CharField('名称', max_length=80, unique=True)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    name = models.CharField('名称', max_length=80)
 
     class Meta:
         ordering = ['name']
         verbose_name = '标签'
         verbose_name_plural = '标签'
+        constraints = [models.UniqueConstraint(fields=['owner', 'name'], name='unique_owner_tag')]
 
     def __str__(self):
         return self.name
 
 
 class Edition(models.Model):
-    isbn = models.CharField('ISBN', max_length=13, unique=True, null=True, blank=True)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    isbn = models.CharField('ISBN', max_length=13, null=True, blank=True)
     title = models.CharField('书名', max_length=300, blank=True)
     author = models.CharField('作者', max_length=300, blank=True)
     publisher = models.CharField('出版社', max_length=200, blank=True)
@@ -40,6 +43,7 @@ class Edition(models.Model):
         ordering = ['title', 'id']
         verbose_name = '图书版本'
         verbose_name_plural = '图书版本'
+        constraints = [models.UniqueConstraint(fields=['owner', 'isbn'], name='unique_owner_isbn')]
 
     def __str__(self):
         return self.title or self.isbn or '未命名图书'

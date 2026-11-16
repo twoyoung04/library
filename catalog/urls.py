@@ -16,6 +16,8 @@ urlpatterns = [
     path('categories/', views.legacy_categories, name='categories'),
     path('api/lookup/', views.lookup_isbn, name='lookup_isbn'),
     path('api/scan-save/', views.scan_save, name='scan_save'),
+    path('api/mobile/metadata/', mobile_api.public_book_metadata),
+    path('api/mobile/snapshot/', mobile_api.library_snapshot),
     path('api/mobile/login/', mobile_api.login),
     path('api/mobile/logout/', mobile_api.logout),
     path('api/mobile/me/', mobile_api.me),

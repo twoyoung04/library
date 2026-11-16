@@ -66,6 +66,23 @@ class MobileApiTests(TestCase):
         self.assertEqual(self.client.post('/api/mobile/logout/', **self.auth).status_code, 200)
         self.assertEqual(self.client.get('/api/mobile/me/', **self.auth).status_code, 401)
 
+    def test_other_users_private_book_tag_and_copy_are_isolated(self):
+        other = get_user_model().objects.create_user(username='other')
+        edition = Edition.objects.create(owner=other, title='Private book', isbn='9780140328721')
+        tag = Tag.objects.create(owner=other, name='Private tag')
+        edition.tags.add(tag)
+        copy = Copy.objects.create(edition=edition, location='Private shelf')
+        self.assertEqual(self.client.get('/api/mobile/snapshot/', **self.auth).json()['items'], [])
+        self.assertEqual(self.client.get('/api/mobile/filters/', **self.auth).json(), {'tags': [], 'locations': []})
+        self.assertEqual(self.client.get(f'/api/mobile/books/{edition.pk}/', **self.auth).status_code, 404)
+        self.assertEqual(self.client.delete(f'/api/mobile/copies/{copy.pk}/', **self.auth).status_code, 404)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(f'/books/{edition.pk}/').status_code, 404)
+        self.assertEqual(self.client.post(f'/tags/{tag.pk}/delete/').status_code, 404)
+        self.assertNotIn('Private book', self.client.get('/export/').content.decode())
+        Edition.objects.create(owner=self.user, title='My book', isbn=edition.isbn)
+        Tag.objects.create(owner=self.user, name=tag.name)
+
     @patch('catalog.mobile_api._book_metadata', return_value={})
     def test_create_is_idempotent_and_reuses_edition(self, _lookup):
         first_id = str(uuid4())
@@ -88,7 +105,7 @@ class MobileApiTests(TestCase):
         self.assertEqual(detail['book']['copy_count'], 2)
 
     def test_search_update_and_delete(self):
-        edition = Edition.objects.create(title='Alpha', isbn='9780140328721')
+        edition = Edition.objects.create(owner=self.user, title='Alpha', isbn='9780140328721')
         copy = Copy.objects.create(edition=edition, location='书架 B')
         self.assertEqual(self.client.get('/api/mobile/books/?q=Alpha', **self.auth).json()['total'], 1)
         self.assertEqual(self.client.get('/api/mobile/books/?location=missing', **self.auth).json()['total'], 0)
@@ -113,7 +130,7 @@ class LibraryFlowTests(TestCase):
             normalize_isbn('9780140328722')
 
     def test_book_list_query_count_stays_bounded(self):
-        edition = Edition.objects.create(isbn='9780140328721', title='A book')
+        edition = Edition.objects.create(owner=self.user, isbn='9780140328721', title='A book')
         Copy.objects.bulk_create([Copy(edition=edition, status=Copy.Status.READ if n < 5
                                        else Copy.Status.UNREAD) for n in range(30)])
         with CaptureQueriesContext(connection) as queries:
@@ -127,10 +144,10 @@ class LibraryFlowTests(TestCase):
         self.assertLessEqual(len(queries), 7)
 
     def test_book_cards_hide_status_and_empty_tags(self):
-        untagged = Edition.objects.create(title='无标签图书')
+        untagged = Edition.objects.create(owner=self.user, title='无标签图书')
         Copy.objects.create(edition=untagged, status=Copy.Status.READ, location='书架 A')
-        tagged = Edition.objects.create(title='有标签图书')
-        tagged.tags.add(Tag.objects.create(name='文学'))
+        tagged = Edition.objects.create(owner=self.user, title='有标签图书')
+        tagged.tags.add(Tag.objects.create(owner=self.user, name='文学'))
         Copy.objects.create(edition=tagged)
 
         cards = self.client.get(reverse('book_list'), {'fragment': 'cards'}).json()['cards']
@@ -140,9 +157,9 @@ class LibraryFlowTests(TestCase):
         self.assertEqual(cards.count('class="book-card-tags"'), 1)
 
     def test_book_list_sort_options_order_copies_and_keep_missing_metadata_last(self):
-        alpha = Edition.objects.create(title='Alpha', published_year=1999)
-        beta = Edition.objects.create(title='Beta', published_year=2020)
-        untitled = Edition.objects.create(title='')
+        alpha = Edition.objects.create(owner=self.user, title='Alpha', published_year=1999)
+        beta = Edition.objects.create(owner=self.user, title='Beta', published_year=2020)
+        untitled = Edition.objects.create(owner=self.user, title='')
         alpha_copy = Copy.objects.create(edition=alpha)
         beta_copy = Copy.objects.create(edition=beta)
         untitled_copy = Copy.objects.create(edition=untitled)
@@ -165,13 +182,13 @@ class LibraryFlowTests(TestCase):
                 self.assertEqual([copy.pk for copy in response.context['page']], copy_ids)
 
     def test_book_list_pagination_preserves_sort_and_search(self):
-        edition = Edition.objects.create(title='Alpha')
+        edition = Edition.objects.create(owner=self.user, title='Alpha')
         Copy.objects.bulk_create([Copy(edition=edition) for _ in range(25)])
         response = self.client.get(reverse('book_list'), {'q': 'Alpha', 'sort': 'title_asc'})
         self.assertContains(response, 'sort=title_asc&amp;page=2')
 
     def test_book_list_fragment_loads_next_page_with_same_filters(self):
-        edition = Edition.objects.create(title='Alpha')
+        edition = Edition.objects.create(owner=self.user, title='Alpha')
         copies = Copy.objects.bulk_create([Copy(edition=edition) for _ in range(30)])
         first = self.client.get(reverse('book_list'), {'q': 'Alpha', 'sort': 'added_asc',
                                                        'fragment': 'cards'})
@@ -190,7 +207,7 @@ class LibraryFlowTests(TestCase):
             self.assertNotIn(f'data-copy-id="{copy.pk}"', second.json()['cards'])
 
     def test_book_detail_shows_entry_time_for_each_copy(self):
-        edition = Edition.objects.create(title='Alpha')
+        edition = Edition.objects.create(owner=self.user, title='Alpha')
         dates = [timezone.make_aware(datetime(2024, 3, 4, 10, 30)),
                  timezone.make_aware(datetime(2025, 5, 6, 14, 45))]
         for created_at in dates:
@@ -258,7 +275,7 @@ class LibraryFlowTests(TestCase):
 
     @patch('catalog.views._book_metadata')
     def test_scan_existing_isbn_adds_copy_without_overwriting(self, metadata):
-        Edition.objects.create(isbn='9787100202169', title='已有书名', author='已有作者')
+        Edition.objects.create(owner=self.user, isbn='9787100202169', title='已有书名', author='已有作者')
         first = self.client.post(reverse('scan_save'), {'isbn': '9787100202169', 'status': 'unread'})
         second = self.client.post(reverse('scan_save'), {'isbn': '9787100202169', 'status': 'unread'})
         self.assertEqual(first.json()['copy_count'], 1)
@@ -270,7 +287,7 @@ class LibraryFlowTests(TestCase):
 
     @patch('catalog.views._book_metadata', return_value={'title': '补全书名', 'author': '作者'})
     def test_scan_enriches_existing_isbn_only_record(self, metadata):
-        Edition.objects.create(isbn='9787100202169', title='')
+        Edition.objects.create(owner=self.user, isbn='9787100202169', title='')
         response = self.client.post(reverse('scan_save'), {'isbn': '9787100202169', 'status': 'unread'})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Edition.objects.get().title, '补全书名')
@@ -310,7 +327,7 @@ class LibraryFlowTests(TestCase):
         }).status_code, 302)
 
     def test_manual_entry_completes_isbn_only_record(self):
-        Edition.objects.create(isbn='9787100202169', title='')
+        Edition.objects.create(owner=self.user, isbn='9787100202169', title='')
         response = self.client.post(reverse('book_new'), {
             'isbn': '9787100202169', 'title': '培根随笔全集', 'status': 'unread',
         })
@@ -319,7 +336,7 @@ class LibraryFlowTests(TestCase):
         self.assertEqual(Copy.objects.count(), 1)
 
     def test_export_import_preserves_two_copies(self):
-        book = Edition.objects.create(isbn='9780140328721', title='A book', author='An author')
+        book = Edition.objects.create(owner=self.user, isbn='9780140328721', title='A book', author='An author')
         Copy.objects.create(edition=book, location='A1')
         Copy.objects.create(edition=book, location='B2', status='read')
         content = self.client.get(reverse('export_csv')).content
@@ -333,9 +350,9 @@ class LibraryFlowTests(TestCase):
         self.assertEqual(set(Copy.objects.values_list('location', flat=True)), {'A1', 'B2'})
 
     def test_tag_filter_finds_book_with_multiple_tags(self):
-        literary = Tag.objects.create(name='文学')
-        novel = Tag.objects.create(name='小说')
-        book = Edition.objects.create(title='A book')
+        literary = Tag.objects.create(owner=self.user, name='文学')
+        novel = Tag.objects.create(owner=self.user, name='小说')
+        book = Edition.objects.create(owner=self.user, title='A book')
         book.tags.add(literary, novel)
         Copy.objects.create(edition=book)
         response = self.client.get(reverse('book_list'), {'tag': literary.pk})
@@ -353,8 +370,8 @@ class LibraryFlowTests(TestCase):
         self.assertContains(self.client.get(reverse('book_list')), '+17')
 
     def test_edit_replaces_book_tags(self):
-        book = Edition.objects.create(title='A book')
-        book.tags.add(Tag.objects.create(name='旧标签'))
+        book = Edition.objects.create(owner=self.user, title='A book')
+        book.tags.add(Tag.objects.create(owner=self.user, name='旧标签'))
         response = self.client.post(reverse('book_edit', args=[book.pk]), {
             'title': 'A book', 'tags_text': '新标签一\n新标签二',
         })
@@ -363,8 +380,8 @@ class LibraryFlowTests(TestCase):
                          {'新标签一', '新标签二'})
 
     def test_new_copy_adds_tags_without_removing_existing_ones(self):
-        book = Edition.objects.create(isbn='9780140328721', title='已有图书')
-        book.tags.add(Tag.objects.create(name='原标签'))
+        book = Edition.objects.create(owner=self.user, isbn='9780140328721', title='已有图书')
+        book.tags.add(Tag.objects.create(owner=self.user, name='原标签'))
         response = self.client.post(reverse('book_new'), {
             'isbn': '9780140328721', 'title': '已有图书', 'status': 'unread',
             'tags_text': '新标签',
@@ -386,7 +403,7 @@ class LibraryFlowTests(TestCase):
         response = self.client.post(reverse('tags'), {'name': '待整理'})
         self.assertEqual(response.status_code, 302)
         tag = Tag.objects.get(name='待整理')
-        book = Edition.objects.create(title='A book')
+        book = Edition.objects.create(owner=self.user, title='A book')
         book.tags.add(tag)
         Copy.objects.create(edition=book)
         self.assertContains(self.client.get(reverse('tags')), '1 个版本')

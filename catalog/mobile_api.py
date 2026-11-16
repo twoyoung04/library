@@ -15,6 +15,7 @@ from django.db.models import Case, Count, F, IntegerField, Q, When
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET
 
 from .forms import parse_tag_names
 from .isbn import normalize_isbn
@@ -133,7 +134,7 @@ def me(request):
 
 @mobile_endpoint({'GET'})
 def books(request):
-    copies = Copy.objects.select_related('edition').prefetch_related('edition__tags')
+    copies = Copy.objects.filter(edition__owner=request.mobile_user).select_related('edition').prefetch_related('edition__tags')
     query = request.GET.get('q', '').strip()[:100]
     tag = request.GET.get('tag', '')
     location = request.GET.get('location', '')[:126]
@@ -170,14 +171,14 @@ def books(request):
 
 @mobile_endpoint({'GET'})
 def book_detail(request, pk):
-    edition = Edition.objects.prefetch_related('tags', 'copies').filter(pk=pk).first()
+    edition = Edition.objects.filter(owner=request.mobile_user).prefetch_related('tags', 'copies').filter(pk=pk).first()
     return JsonResponse({'book': edition_json(edition, True)}) if edition else failure('图书不存在。', 404)
 
 
 @mobile_endpoint({'GET'})
 def filters(request):
-    tags = list(Tag.objects.order_by('name').values('id', 'name'))
-    locations = list(Copy.objects.exclude(location='').order_by('location')
+    tags = list(Tag.objects.filter(owner=request.mobile_user).order_by('name').values('id', 'name'))
+    locations = list(Copy.objects.filter(edition__owner=request.mobile_user).exclude(location='').order_by('location')
                      .values_list('location', flat=True).distinct())
     return JsonResponse({'tags': tags, 'locations': locations})
 
@@ -185,7 +186,7 @@ def filters(request):
 @mobile_endpoint({'GET'})
 def lookup(request):
     isbn = normalize_isbn(request.GET.get('isbn', ''))
-    edition = Edition.objects.prefetch_related('tags').filter(isbn=isbn).first()
+    edition = Edition.objects.filter(owner=request.mobile_user).prefetch_related('tags').filter(isbn=isbn).first()
     if edition:
         result = edition_json(edition)
         result['copy_count'] = edition.copies.count()
@@ -239,7 +240,7 @@ def create_copy(request):
     except ValueError:
         raise ValueError('缺少有效的 request_id。')
     previous = MobileSaveRequest.objects.select_related('copy__edition').filter(
-        user=request.mobile_user, request_id=request_id).first()
+        user=request.mobile_user, request_id=request_id, copy__edition__owner=request.mobile_user).first()
     if previous:
         return JsonResponse({'copy': copy_json(previous.copy), 'edition_id': previous.copy.edition_id,
                              'replayed': True})
@@ -248,17 +249,17 @@ def create_copy(request):
     tag_names = parse_tag_names(data.get('tags', ''))
     try:
         with transaction.atomic():
-            edition = Edition.objects.filter(isbn=fields['isbn']).first() if fields['isbn'] else None
+            edition = Edition.objects.filter(owner=request.mobile_user).filter(isbn=fields['isbn']).first() if fields['isbn'] else None
             if edition is None:
                 metadata = _edition_fields(_book_metadata(fields['isbn'])) if fields['isbn'] and not fields['title'] else {}
                 values = {name: fields[name] or metadata.get(name) for name in fields}
                 for name in ('title', 'author', 'publisher', 'cover_url'):
                     values[name] = values[name] or ''
                 if fields['isbn']:
-                    edition, created = Edition.objects.get_or_create(isbn=fields['isbn'], defaults={
+                    edition, created = Edition.objects.get_or_create(owner=request.mobile_user, isbn=fields['isbn'], defaults={
                         name: value for name, value in values.items() if name != 'isbn'})
                 else:
-                    edition = Edition.objects.create(**values)
+                    edition = Edition.objects.create(owner=request.mobile_user, **values)
                     created = True
             else:
                 created = False
@@ -274,7 +275,7 @@ def create_copy(request):
             MobileSaveRequest.objects.create(user=request.mobile_user, request_id=request_id, copy=copy)
     except IntegrityError:
         previous = MobileSaveRequest.objects.select_related('copy').filter(
-            user=request.mobile_user, request_id=request_id).first()
+            user=request.mobile_user, request_id=request_id, copy__edition__owner=request.mobile_user).first()
         if previous is None:
             raise
         return JsonResponse({'copy': copy_json(previous.copy), 'edition_id': previous.copy.edition_id,
@@ -285,13 +286,13 @@ def create_copy(request):
 @mobile_endpoint({'PATCH'})
 def update_book(request, pk):
     data = payload(request)
-    edition = Edition.objects.filter(pk=pk).first()
+    edition = Edition.objects.filter(owner=request.mobile_user).filter(pk=pk).first()
     if edition is None:
         return failure('图书不存在。', 404)
     current = {name: getattr(edition, name) for name in
                ('isbn', 'title', 'author', 'publisher', 'published_year', 'cover_url')}
     fields = clean_fields({**current, **data}, require_identity=True)
-    if fields['isbn'] and Edition.objects.filter(isbn=fields['isbn']).exclude(pk=pk).exists():
+    if fields['isbn'] and Edition.objects.filter(owner=request.mobile_user).filter(isbn=fields['isbn']).exclude(pk=pk).exists():
         return failure('这个 ISBN 已属于另一条图书记录。', 409)
     for name, value in fields.items():
         setattr(edition, name, value)
@@ -299,13 +300,13 @@ def update_book(request, pk):
         edition.save()
         if 'tags' in data:
             _save_tags(edition, parse_tag_names(data['tags']))
-    edition = Edition.objects.prefetch_related('tags', 'copies').get(pk=pk)
+    edition = Edition.objects.filter(owner=request.mobile_user).prefetch_related('tags', 'copies').get(pk=pk)
     return JsonResponse({'book': edition_json(edition, True)})
 
 
 @mobile_endpoint({'PATCH', 'DELETE'})
 def copy_detail(request, pk):
-    copy = Copy.objects.select_related('edition').filter(pk=pk).first()
+    copy = Copy.objects.filter(edition__owner=request.mobile_user).select_related('edition').filter(pk=pk).first()
     if copy is None:
         return failure('这册书不存在。', 404)
     if request.method == 'PATCH':
@@ -322,3 +323,30 @@ def copy_detail(request, pk):
         if not edition.copies.exists():
             edition.delete()
     return JsonResponse({'ok': True})
+
+
+@require_GET
+def public_book_metadata(request):
+    # This endpoint only queries public book sources; it never reads a private library.
+    try:
+        isbn = normalize_isbn(request.GET.get('isbn', ''))
+    except ValueError as exc:
+        return failure(str(exc))
+    address = request.META.get('HTTP_X_REAL_IP') or request.META.get('REMOTE_ADDR', '')
+    key = 'public-book-metadata:' + token_digest(address)
+    if not cache.add(key, 1, 60) and cache.incr(key) > 30:
+        return failure('查询较频繁，请稍后再试。', 429)
+    return JsonResponse({'existing': False, 'isbn': isbn, 'metadata': _edition_fields(_book_metadata(isbn))})
+
+
+@mobile_endpoint({'GET'})
+def library_snapshot(request):
+    items = Copy.objects.filter(edition__owner=request.mobile_user).select_related('edition').order_by('id')
+    after = request.GET.get('after', '0')
+    if not after.isascii() or not after.isdigit() or len(after) > 18:
+        return failure('无效的书库分页位置。')
+    items = list(items.filter(pk__gt=int(after)).prefetch_related('edition__tags')[:201])
+    return JsonResponse({
+        'items': [{'copy': copy_json(c), 'edition': edition_json(c.edition)} for c in items[:200]],
+        'next_after': items[199].pk if len(items) > 200 else None,
+    })

@@ -27,23 +27,23 @@ from .lookup import lookup_book
 from .models import Copy, Edition, Tag
 
 
-def _tag_objects(names):
+def _tag_objects(owner, names):
     names = list(dict.fromkeys(names))
     if not names:
         return []
-    existing = set(Tag.objects.filter(name__in=names).values_list('name', flat=True))
-    Tag.objects.bulk_create([Tag(name=name) for name in names if name not in existing],
+    existing = set(Tag.objects.filter(owner=owner, name__in=names).values_list('name', flat=True))
+    Tag.objects.bulk_create([Tag(owner=owner, name=name) for name in names if name not in existing],
                             ignore_conflicts=True)
-    return list(Tag.objects.filter(name__in=names))
+    return list(Tag.objects.filter(owner=owner, name__in=names))
 
 
 def _save_tags(edition, names):
-    edition.tags.set(_tag_objects(names))
+    edition.tags.set(_tag_objects(edition.owner, names))
 
 
 def _add_tags(edition, names):
     if names:
-        edition.tags.add(*_tag_objects(names))
+        edition.tags.add(*_tag_objects(edition.owner, names))
 
 
 def _book_metadata(isbn):
@@ -103,7 +103,7 @@ class _DoubanRedirectHandler(HTTPRedirectHandler):
 @login_required
 @require_GET
 def edition_cover_proxy(request, pk):
-    edition = get_object_or_404(Edition, pk=pk)
+    edition = get_object_or_404(Edition, owner=request.user, pk=pk)
     source_url = edition.cover_url
     parsed = urlparse(source_url)
     if (parsed.scheme != 'https' or not _DOUBAN_IMAGE_HOST.fullmatch(parsed.hostname or '')
@@ -140,7 +140,7 @@ def edition_cover_proxy(request, pk):
 
 @login_required
 def book_list(request):
-    copies = Copy.objects.select_related('edition').prefetch_related('edition__tags')
+    copies = Copy.objects.filter(edition__owner=request.user).select_related('edition').prefetch_related('edition__tags')
     fragment = request.GET.get('fragment') == 'cards'
     query = request.GET.get('q', '').strip()[:100]
     tag = request.GET.get('tag', '')
@@ -148,8 +148,8 @@ def book_list(request):
     sort = request.GET.get('sort', 'added_desc')
     if sort not in dict(BOOK_SORT_OPTIONS):
         sort = 'added_desc'
-    tags = [] if fragment else list(Tag.objects.all())
-    total_copies = None if fragment and (query or tag or status) else Copy.objects.count()
+    tags = [] if fragment else list(Tag.objects.filter(owner=request.user))
+    total_copies = None if fragment and (query or tag or status) else Copy.objects.filter(edition__owner=request.user).count()
     if query:
         copies = copies.filter(Q(edition__title__icontains=query) |
                                Q(edition__author__icontains=query) |
@@ -160,7 +160,7 @@ def book_list(request):
     valid_tag = False
     if tag.isdigit():
         tag_id = int(tag)
-        valid_tag = (Tag.objects.filter(pk=tag_id).exists() if fragment
+        valid_tag = (Tag.objects.filter(owner=request.user, pk=tag_id).exists() if fragment
                      else tag_id in {item.pk for item in tags})
     if valid_tag:
         copies = copies.filter(edition__tags__pk=tag_id)
@@ -204,13 +204,13 @@ def book_new(request):
             submitted_isbn = normalize_isbn(request.POST.get('isbn', '')) if request.POST.get('isbn', '').strip() else None
         except ValueError:
             submitted_isbn = None
-        existing_for_validation = Edition.objects.filter(isbn=submitted_isbn).first() if submitted_isbn else None
-        edition_form = EditionForm(request.POST, instance=existing_for_validation)
+        existing_for_validation = Edition.objects.filter(owner=request.user, isbn=submitted_isbn).first() if submitted_isbn else None
+        edition_form = EditionForm(request.POST, instance=existing_for_validation or Edition(owner=request.user))
         copy_form = CopyForm(request.POST)
         if edition_form.is_valid() and copy_form.is_valid():
             with transaction.atomic():
                 isbn = edition_form.cleaned_data['isbn']
-                existing = Edition.objects.filter(isbn=isbn).first() if isbn else None
+                existing = Edition.objects.filter(owner=request.user, isbn=isbn).first() if isbn else None
                 if existing:
                     edition = existing
                     if not edition.title:
@@ -251,13 +251,13 @@ def book_new(request):
 
 @login_required
 def book_detail(request, pk):
-    edition = get_object_or_404(Edition.objects.prefetch_related('tags', 'copies'), pk=pk)
+    edition = get_object_or_404(Edition.objects.prefetch_related('tags', 'copies'), owner=request.user, pk=pk)
     return render(request, 'catalog/detail.html', {'edition': edition})
 
 
 @login_required
 def book_edit(request, pk):
-    edition = get_object_or_404(Edition, pk=pk)
+    edition = get_object_or_404(Edition, owner=request.user, pk=pk)
     if request.method == 'POST':
         form = EditionForm(request.POST, instance=edition)
         if form.is_valid():
@@ -274,7 +274,7 @@ def book_edit(request, pk):
 
 @login_required
 def copy_edit(request, pk):
-    copy = get_object_or_404(Copy.objects.select_related('edition'), pk=pk)
+    copy = get_object_or_404(Copy.objects.select_related('edition'), edition__owner=request.user, pk=pk)
     if request.method == 'POST':
         form = CopyForm(request.POST, instance=copy)
         if form.is_valid():
@@ -289,7 +289,7 @@ def copy_edit(request, pk):
 @login_required
 @require_POST
 def copy_delete(request, pk):
-    copy = get_object_or_404(Copy, pk=pk)
+    copy = get_object_or_404(Copy, edition__owner=request.user, pk=pk)
     edition = copy.edition
     copy.delete()
     if not edition.copies.exists():
@@ -302,19 +302,19 @@ def copy_delete(request, pk):
 
 @login_required
 def tags(request):
-    form = TagForm(request.POST or None)
+    form = TagForm(request.POST or None, instance=Tag(owner=request.user))
     if request.method == 'POST' and form.is_valid():
         form.save()
         messages.success(request, '标签已添加。')
         return redirect('tags')
-    items = list(Tag.objects.annotate(book_count=Count('editions', distinct=True)))
+    items = list(Tag.objects.filter(owner=request.user).annotate(book_count=Count('editions', distinct=True)))
     return render(request, 'catalog/tags.html', {'form': form, 'items': items})
 
 
 @login_required
 @require_POST
 def tag_delete(request, pk):
-    tag = get_object_or_404(Tag, pk=pk)
+    tag = get_object_or_404(Tag, owner=request.user, pk=pk)
     tag.delete()
     messages.success(request, '标签已删除，图书仍保留。')
     return redirect('tags')
@@ -333,7 +333,7 @@ def lookup_isbn(request):
         isbn = normalize_isbn(request.GET.get('isbn', ''))
     except ValueError as exc:
         return JsonResponse({'error': str(exc)}, status=400)
-    existing = Edition.objects.filter(isbn=isbn).annotate(copy_count=Count('copies')).first()
+    existing = Edition.objects.filter(owner=request.user, isbn=isbn).annotate(copy_count=Count('copies')).first()
     if existing:
         found = _edition_fields(_book_metadata(isbn)) if not existing.title else {}
         return JsonResponse({'existing': True, 'edition_id': existing.pk,
@@ -362,11 +362,11 @@ def scan_save(request):
     except ValueError as exc:
         return JsonResponse({'error': str(exc)}, status=400)
 
-    existing = Edition.objects.filter(isbn=isbn).first()
+    existing = Edition.objects.filter(owner=request.user, isbn=isbn).first()
     metadata = _book_metadata(isbn) if not existing or not existing.title else {}
     fields = _edition_fields(metadata)
     with transaction.atomic():
-        edition, created = Edition.objects.get_or_create(isbn=isbn, defaults=fields)
+        edition, created = Edition.objects.get_or_create(owner=request.user, isbn=isbn, defaults=fields)
         if not created and not edition.title and fields['title']:
             updates = []
             for field, value in fields.items():
@@ -405,7 +405,7 @@ def export_csv(request):
     response.write('\ufeff')
     writer = csv.writer(response)
     writer.writerow(CSV_FIELDS)
-    for copy in Copy.objects.select_related('edition').prefetch_related('edition__tags').iterator(chunk_size=500):
+    for copy in Copy.objects.filter(edition__owner=request.user).select_related('edition').prefetch_related('edition__tags').iterator(chunk_size=500):
         book = copy.edition
         writer.writerow([
             book.isbn or '', book.title, book.author, book.publisher,
@@ -433,7 +433,7 @@ def import_csv(request):
                 raise ValueError('一次最多导入 10000 行。')
             with transaction.atomic():
                 for number, row in enumerate(rows, start=2):
-                    _import_row(row, number)
+                    _import_row(row, number, request.user)
             messages.success(request, f'已导入 {len(rows)} 册图书。相同 ISBN 会新增实体副本。')
             return redirect('book_list')
         except (UnicodeError, csv.Error, ValueError) as exc:
@@ -441,7 +441,7 @@ def import_csv(request):
     return render(request, 'catalog/import.html', {'fields': CSV_FIELDS})
 
 
-def _import_row(row, number):
+def _import_row(row, number, owner):
     title = (row.get('书名') or '').strip()
     raw_isbn = (row.get('ISBN') or '').strip()
     try:
@@ -470,10 +470,10 @@ def _import_row(row, number):
             names = list(dict.fromkeys([*names, legacy_category]))
     except ValueError as exc:
         raise ValueError(f'第 {number} 行标签无效：{exc}') from exc
-    edition = Edition.objects.filter(isbn=isbn).first() if isbn else None
+    edition = Edition.objects.filter(owner=owner, isbn=isbn).first() if isbn else None
     if not edition:
         edition = Edition.objects.create(
-            isbn=isbn, title=title[:300], author=(row.get('作者') or '').strip()[:300],
+            owner=owner, isbn=isbn, title=title[:300], author=(row.get('作者') or '').strip()[:300],
             publisher=(row.get('出版社') or '').strip()[:200],
             published_year=int(year_raw) if year_raw else None,
             cover_url=(row.get('封面链接') or '').strip()[:1000],
@@ -489,7 +489,7 @@ def book_cover(request, pk):
     from django.conf import settings
     from django.http import Http404
     from .covers import current_key
-    edition = get_object_or_404(Edition, pk=pk)
+    edition = get_object_or_404(Edition, owner=request.user, pk=pk)
     if not settings.COS_ENABLED or not current_key(edition):
         raise Http404
     return redirect(edition.cover_display_url)
