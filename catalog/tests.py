@@ -83,6 +83,31 @@ class MobileApiTests(TestCase):
         Edition.objects.create(owner=self.user, title='My book', isbn=edition.isbn)
         Tag.objects.create(owner=self.user, name=tag.name)
 
+    def test_sync_rejects_stale_edits_and_allows_retry_of_applied_edit(self):
+        edition = Edition.objects.create(owner=self.user, title='Book')
+        copy = Copy.objects.create(edition=edition, location='Old')
+        before = self.client.get('/api/mobile/snapshot/', **self.auth).json()['items'][0]['copy']
+        url = f'/api/mobile/copies/{copy.pk}/'
+        data = json.dumps({'location': 'New'})
+        headers = {**self.auth, 'HTTP_IF_MATCH': before['revision']}
+        self.assertEqual(self.client.patch(url, data, content_type='application/json', **headers).status_code, 200)
+        self.assertEqual(self.client.patch(url, data, content_type='application/json', **headers).status_code, 200)
+        stale = self.client.patch(url, json.dumps({'location': 'Stale'}),
+                                  content_type='application/json', **headers)
+        self.assertEqual(stale.status_code, 412)
+        self.assertEqual(self.client.delete(url, **headers).status_code, 412)
+        self.assertEqual(Copy.objects.get(pk=copy.pk).location, 'New')
+
+    def test_retry_does_not_restore_a_deleted_copy(self):
+        data = json.dumps({'request_id': str(uuid4()), 'title': 'Book'})
+        path = '/api/mobile/copies/'
+        saved = self.client.post(path, data, content_type='application/json', **self.auth)
+        self.assertEqual(saved.status_code, 201)
+        copy_id = saved.json()['copy']['id']
+        self.assertEqual(self.client.delete(f'{path}{copy_id}/', **self.auth).status_code, 200)
+        self.assertEqual(self.client.post(path, data, content_type='application/json', **self.auth).status_code, 410)
+        self.assertFalse(Copy.objects.exists())
+
     @patch('catalog.mobile_api._book_metadata', return_value={})
     def test_create_is_idempotent_and_reuses_edition(self, _lookup):
         first_id = str(uuid4())

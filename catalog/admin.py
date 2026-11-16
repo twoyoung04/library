@@ -25,9 +25,11 @@ class LibraryOwnerAdmin(admin.ModelAdmin):
 class EditionAdmin(LibraryOwnerAdmin):
     exclude = ['owner', 'tags']
     list_display = ['title', 'author', 'isbn', 'copy_count']
-    list_filter = ['owner']
     search_fields = ['title', 'author', 'isbn', 'publisher']
     inlines = [CopyInline]
+
+    def get_list_filter(self, request):
+        return ['owner'] if request.user.is_superuser else []
 
     @admin.display(description='册数')
     def copy_count(self, obj):

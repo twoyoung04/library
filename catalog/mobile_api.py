@@ -69,13 +69,19 @@ def mobile_endpoint(methods):
     return decorate
 
 
+def revision(data):
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+
 def copy_json(copy):
-    return {
+    data = {
         'id': copy.pk, 'edition_id': copy.edition_id,
         'location': copy.location, 'status': copy.status,
         'acquired_on': copy.acquired_on.isoformat() if copy.acquired_on else None,
         'notes': copy.notes, 'created_at': copy.created_at.isoformat(),
     }
+    data['revision'] = revision(data)
+    return data
 
 
 def edition_json(edition, include_copies=False):
@@ -88,6 +94,8 @@ def edition_json(edition, include_copies=False):
         'copy_count': getattr(edition, 'copy_count', None),
         'updated_at': edition.updated_at.isoformat(),
     }
+    fields = ('isbn', 'title', 'author', 'publisher', 'published_year', 'cover_source_url', 'tags')
+    data['revision'] = revision({name: data[name] for name in fields})
     if include_copies:
         data['copies'] = [copy_json(copy) for copy in edition.copies.all()]
         data['copy_count'] = len(data['copies'])
@@ -240,10 +248,9 @@ def create_copy(request):
     except ValueError:
         raise ValueError('缺少有效的 request_id。')
     previous = MobileSaveRequest.objects.select_related('copy__edition').filter(
-        user=request.mobile_user, request_id=request_id, copy__edition__owner=request.mobile_user).first()
+        user=request.mobile_user, request_id=request_id).first()
     if previous:
-        return JsonResponse({'copy': copy_json(previous.copy), 'edition_id': previous.copy.edition_id,
-                             'replayed': True})
+        return create_reply(previous.copy, request.mobile_user, replayed=True)
     fields = clean_fields(data, require_identity=True)
     copy_fields = clean_copy(data)
     tag_names = parse_tag_names(data.get('tags', ''))
@@ -275,18 +282,33 @@ def create_copy(request):
             MobileSaveRequest.objects.create(user=request.mobile_user, request_id=request_id, copy=copy)
     except IntegrityError:
         previous = MobileSaveRequest.objects.select_related('copy').filter(
-            user=request.mobile_user, request_id=request_id, copy__edition__owner=request.mobile_user).first()
+            user=request.mobile_user, request_id=request_id).first()
         if previous is None:
             raise
-        return JsonResponse({'copy': copy_json(previous.copy), 'edition_id': previous.copy.edition_id,
-                             'replayed': True})
-    return JsonResponse({'copy': copy_json(copy), 'edition_id': edition.pk, 'replayed': False}, status=201)
+        return create_reply(previous.copy, request.mobile_user, replayed=True)
+    return create_reply(copy, request.mobile_user, replayed=False)
+
+
+def create_reply(copy, user, *, replayed):
+    if copy is None or copy.edition.owner_id != user.id:
+        return failure('这次录入对应的藏书已删除。', 410)
+    return JsonResponse({'copy': copy_json(copy), 'edition_id': copy.edition_id,
+                         'replayed': replayed, 'book_revision': edition_json(copy.edition)['revision']},
+                        status=200 if replayed else 201)
+
+
+def check_revision(request, current):
+    expected = request.headers.get('If-Match')
+    if expected and expected != current:
+        return failure('这条记录已在其他设备修改。请先处理同步冲突。', 412)
+    return None
 
 
 @mobile_endpoint({'PATCH'})
+@transaction.atomic
 def update_book(request, pk):
     data = payload(request)
-    edition = Edition.objects.filter(owner=request.mobile_user).filter(pk=pk).first()
+    edition = Edition.objects.select_for_update().filter(owner=request.mobile_user, pk=pk).first()
     if edition is None:
         return failure('图书不存在。', 404)
     current = {name: getattr(edition, name) for name in
@@ -294,6 +316,14 @@ def update_book(request, pk):
     fields = clean_fields({**current, **data}, require_identity=True)
     if fields['isbn'] and Edition.objects.filter(owner=request.mobile_user).filter(isbn=fields['isbn']).exclude(pk=pk).exists():
         return failure('这个 ISBN 已属于另一条图书记录。', 409)
+    conflict = check_revision(request, edition_json(edition)['revision'])
+    if conflict:
+        desired = dict(fields)
+        desired_tags = set(parse_tag_names(data['tags'])) if 'tags' in data else None
+        if (all(getattr(edition, name) == value for name, value in desired.items())
+                and (desired_tags is None or desired_tags == {t.name for t in edition.tags.all()})):
+            return JsonResponse({'book': edition_json(edition, True)})
+        return conflict
     for name, value in fields.items():
         setattr(edition, name, value)
     with transaction.atomic():
@@ -305,18 +335,27 @@ def update_book(request, pk):
 
 
 @mobile_endpoint({'PATCH', 'DELETE'})
+@transaction.atomic
 def copy_detail(request, pk):
-    copy = Copy.objects.filter(edition__owner=request.mobile_user).select_related('edition').filter(pk=pk).first()
+    copy = Copy.objects.select_for_update().filter(edition__owner=request.mobile_user).select_related('edition').filter(pk=pk).first()
     if copy is None:
         return failure('这册书不存在。', 404)
     if request.method == 'PATCH':
         data = payload(request)
         current = copy_json(copy)
         fields = clean_copy({**current, **data})
+        conflict = check_revision(request, current['revision'])
+        if conflict:
+            if all(getattr(copy, name) == value for name, value in fields.items()):
+                return JsonResponse({'copy': current})
+            return conflict
         for name, value in fields.items():
             setattr(copy, name, value)
         copy.save(update_fields=list(fields))
         return JsonResponse({'copy': copy_json(copy)})
+    conflict = check_revision(request, copy_json(copy)['revision'])
+    if conflict:
+        return conflict
     edition = copy.edition
     with transaction.atomic():
         copy.delete()
@@ -334,8 +373,12 @@ def public_book_metadata(request):
         return failure(str(exc))
     address = request.META.get('HTTP_X_REAL_IP') or request.META.get('REMOTE_ADDR', '')
     key = 'public-book-metadata:' + token_digest(address)
-    if not cache.add(key, 1, 60) and cache.incr(key) > 30:
-        return failure('查询较频繁，请稍后再试。', 429)
+    if not cache.add(key, 1, 60):
+        try:
+            if cache.incr(key) > 30:
+                return failure('查询较频繁，请稍后再试。', 429)
+        except ValueError:
+            cache.add(key, 1, 60)
     return JsonResponse({'existing': False, 'isbn': isbn, 'metadata': _edition_fields(_book_metadata(isbn))})
 
 

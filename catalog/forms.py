@@ -33,9 +33,13 @@ class EditionForm(forms.ModelForm):
         if not value:
             return None
         try:
-            return normalize_isbn(value)
+            isbn = normalize_isbn(value)
         except ValueError as exc:
             raise forms.ValidationError(str(exc)) from exc
+        if (self.instance.owner_id and Edition.objects.filter(owner_id=self.instance.owner_id, isbn=isbn)
+                .exclude(pk=self.instance.pk).exists()):
+            raise forms.ValidationError('这个 ISBN 已属于另一条图书记录。')
+        return isbn
 
     def clean_tags_text(self):
         try:
@@ -58,3 +62,10 @@ class TagForm(forms.ModelForm):
     class Meta:
         model = Tag
         fields = ['name']
+
+    def clean_name(self):
+        name = self.cleaned_data['name']
+        if (self.instance.owner_id and Tag.objects.filter(owner_id=self.instance.owner_id, name=name)
+                .exclude(pk=self.instance.pk).exists()):
+            raise forms.ValidationError('这个标签已存在。')
+        return name

@@ -91,7 +91,7 @@ class MobileToken(models.Model):
 class MobileSaveRequest(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     request_id = models.UUIDField()
-    copy = models.ForeignKey(Copy, on_delete=models.CASCADE)
+    copy = models.ForeignKey(Copy, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
