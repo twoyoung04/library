@@ -1,7 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ShelfView: View {
     @EnvironmentObject private var store: LibraryStore
+    let onScan: () -> Void
+    let onManual: () -> Void
     @State private var showFilters = false
     @FocusState private var searchFocused: Bool
 
@@ -16,60 +19,85 @@ struct ShelfView: View {
                     store.search = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.muted)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .accessibilityLabel("清除搜索")
             }
         }
         .padding(.horizontal, 15)
-        .frame(height: 46)
-        .background(.white, in: RoundedRectangle(cornerRadius: 14))
+        .frame(minHeight: 46)
+        .background(.background, in: RoundedRectangle(cornerRadius: 14))
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Palette.background.ignoresSafeArea()
+                Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                         HStack(alignment: .firstTextBaseline) {
-                            Text("我的书库").font(.system(size: 35, weight: .semibold, design: .serif))
+                            Text("藏书").font(.largeTitle.weight(.semibold)).accessibilityAddTraits(.isHeader)
                             Spacer()
                             Text("\(store.total) 册").font(.subheadline).foregroundStyle(Palette.muted)
                         }
                         .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 4)
                         Section {
                             LazyVStack(alignment: .leading, spacing: 14) {
-                                if !store.pending.isEmpty {
-                                    Label("\(store.pending.count) 册等待同步，点击重试", systemImage: "arrow.triangle.2.circlepath")
+                                if store.pendingCount > 0 {
+                                    Label("\(store.pendingCount) 册等待同步，点击重试", systemImage: "arrow.triangle.2.circlepath")
                                         .font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
                                         .padding(14).background(Color.orange.opacity(0.14), in: RoundedRectangle(cornerRadius: 14))
-                                        .onTapGesture { Task { await store.syncPending() } }
+                                        .onTapGesture { Task { await store.refresh() } }
                                 }
                                 if let error = store.errorMessage, !store.items.isEmpty {
                                     Text("当前显示已缓存书目 · \(error)")
                                         .font(.caption).foregroundStyle(Palette.muted)
                                 }
                                 if store.items.isEmpty && !store.isLoading {
-                                    ContentUnavailableView(store.search.isEmpty ? "书库还是空的" : "没有找到图书",
-                                                           systemImage: "books.vertical",
-                                                           description: Text(store.search.isEmpty ? "切换到录入，扫描第一本书。" : "试试其他关键词或筛选条件。"))
-                                        .padding(.top, 80)
+                                    if store.search.isEmpty && store.tagId == nil && store.location.isEmpty && store.errorMessage == nil {
+                                        ContentUnavailableView {
+                                            Label("书库还是空的", systemImage: "books.vertical")
+                                        } description: {
+                                            Text("扫描书背的 ISBN，添加第一本书。")
+                                        } actions: {
+                                            Button("扫码录书", action: onScan).buttonStyle(.borderedProminent)
+                                            Button("手动录入", action: onManual)
+                                        }
+                                        .padding(.top, 46)
+                                    } else {
+                                        ContentUnavailableView(
+                                            store.errorMessage == nil ? "没有找到图书" : "暂时无法加载书库",
+                                            systemImage: store.errorMessage == nil ? "magnifyingglass" : "wifi.exclamationmark",
+                                            description: Text(store.errorMessage ?? "试试其他关键词或筛选条件。")
+                                        )
+                                        .padding(.top, 46)
+                                    }
                                 }
                                 ForEach(store.items) { item in
                                     NavigationLink(value: item.edition.id) {
                                         BookRow(item: item)
                                     }
                                     .buttonStyle(.plain)
-                                    .onAppear { Task { await store.loadMoreIfNeeded(item) } }
                                 }
                                 if store.isLoading { ProgressView().frame(maxWidth: .infinity).padding(24) }
                             }
                             .padding(.horizontal, 18).padding(.top, 6).padding(.bottom, 30)
                         } header: {
-                            searchBar
-                                .padding(.horizontal, 18).padding(.vertical, 9)
-                                .frame(maxWidth: .infinity)
-                                .background(Palette.background)
+                            HStack(spacing: 8) {
+                                searchBar
+                                Button {
+                                    searchFocused = false
+                                    showFilters = true
+                                } label: {
+                                    Image(systemName: store.tagId != nil || !store.location.isEmpty || store.sort != "added_desc"
+                                          ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
+                                        .frame(width: 44, height: 44)
+                                        .background(.background, in: Circle())
+                                }
+                                .accessibilityLabel("筛选与排序")
+                            }
+                            .padding(.horizontal, 18).padding(.vertical, 9)
+                            .background(Color(uiColor: .systemGroupedBackground))
                         }
                     }
                 }
@@ -79,15 +107,9 @@ struct ShelfView: View {
             .navigationDestination(for: Int.self) { BookDetailView(bookId: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showFilters = true } label: {
-                        Image(systemName: store.tagId != nil || !store.location.isEmpty ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                    }
+                    Button(action: onScan) { Image(systemName: "barcode.viewfinder") }
+                        .accessibilityLabel("扫码录书")
                 }
-            }
-            .task(id: store.search) {
-                try? await Task.sleep(for: .milliseconds(260))
-                guard !Task.isCancelled else { return }
-                await store.loadBooks(reset: true)
             }
             .sheet(isPresented: $showFilters) { FilterSheet() }
         }
@@ -97,27 +119,23 @@ struct ShelfView: View {
 struct BookRow: View {
     let item: BookItem
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            CoverView(url: item.edition.coverUrl).frame(width: 72, height: 102)
-            VStack(alignment: .leading, spacing: 7) {
+        HStack(spacing: 14) {
+            CoverView(url: item.edition.coverUrl).frame(width: 52, height: 73).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
                 Text(item.edition.displayTitle)
-                    .font(.system(size: 17, weight: .semibold, design: .serif))
-                    .foregroundStyle(Palette.ink).lineLimit(2)
+                    .font(.headline)
                 Text(item.edition.author.isEmpty ? "作者未录入" : item.edition.author)
-                    .font(.subheadline).foregroundStyle(Palette.muted).lineLimit(1)
-                Spacer(minLength: 4)
-                HStack(spacing: 5) {
-                    Image(systemName: "mappin.circle")
-                    Text(item.copy.location.isEmpty ? "位置未录入" : item.copy.location)
-                }
-                .font(.caption).foregroundStyle(Palette.accent).lineLimit(1)
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Text(item.copy.location.isEmpty ? "未设位置" : item.copy.location)
+                    .font(.footnote).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(Palette.muted)
-                .frame(maxHeight: .infinity)
+            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
         }
-        .padding(14).frame(height: 130)
-        .background(.white, in: RoundedRectangle(cornerRadius: 18))
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -164,7 +182,7 @@ struct FilterSheet: View {
             }
             .navigationTitle("筛选与排序")
             .toolbar { ToolbarItem(placement: .confirmationAction) {
-                Button("完成") { dismiss(); Task { await store.loadBooks(reset: true) } }
+                Button("完成") { dismiss() }
             } }
         }
         .presentationDetents([.medium, .large])
@@ -173,101 +191,237 @@ struct FilterSheet: View {
 
 struct BookDetailView: View {
     @EnvironmentObject private var store: LibraryStore
+    @Environment(\.dismiss) private var dismiss
     let bookId: Int
     @State private var book: BookInfo?
     @State private var editing = false
-    @State private var editingCopy: CopyInfo?
+    @State private var removedLastCopy = false
     @State private var error: String?
 
     var body: some View {
-        ScrollView {
+        Group {
             if let book {
-                VStack(alignment: .leading, spacing: 22) {
-                    HStack(alignment: .top, spacing: 20) {
-                        CoverView(url: book.coverUrl).frame(width: 112, height: 158)
-                        VStack(alignment: .leading, spacing: 9) {
-                            Text(book.displayTitle).font(.system(size: 29, weight: .semibold, design: .serif))
-                            Text(book.author.isEmpty ? "作者未录入" : book.author)
-                                .foregroundStyle(Palette.muted)
-                            Text("\(book.copyCount ?? 0) 册馆藏").font(.subheadline).foregroundStyle(Palette.accent)
-                        }
+                List {
+                    Section {
+                        bookIdentity(book)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 12, trailing: 0))
                     }
-                    VStack(alignment: .leading, spacing: 12) {
-                        InfoLine(label: "ISBN", value: book.isbn ?? "未录入")
-                        InfoLine(label: "出版社", value: book.publisher.isEmpty ? "未录入" : book.publisher)
-                        InfoLine(label: "出版年", value: book.publishedYear.map(String.init) ?? "未录入")
-                    }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18))
-                    if !book.tags.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack { ForEach(book.tags) { Text($0.name).font(.caption).padding(.horizontal, 12).padding(.vertical, 7)
-                                .background(Palette.accent.opacity(0.10), in: Capsule()) } }
-                        }
+                    Section("出版资料") {
+                        DetailValue("出版社", book.publisher)
+                        DetailValue("出版年", book.publishedYear.map(String.init))
+                        DetailValue("ISBN", book.isbn, monospaced: true)
                     }
-                    Text("实体副本").font(.system(size: 23, weight: .semibold, design: .serif))
-                    ForEach(book.copies ?? []) { copy in
-                        VStack(alignment: .leading, spacing: 9) {
-                            HStack {
-                                Text(copy.location.isEmpty ? "位置未录入" : copy.location).font(.headline)
-                                Spacer()
-                                Button("编辑") { editingCopy = copy }.font(.subheadline)
+                    if let copies = book.copies, copies.count == 1, let copy = copies.first {
+                        Section("我的藏书") {
+                            copyDetails(copy)
+                            if !book.tags.isEmpty {
+                                DetailValue("标签", book.tags.map(\.name).joined(separator: "、"))
                             }
-                            if let date = copy.acquiredOn { Text("\(date) 入藏").font(.subheadline).foregroundStyle(Palette.muted) }
-                            if !copy.notes.isEmpty { Text(copy.notes).font(.subheadline) }
                         }
-                        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                    } else {
+                        ForEach(Array((book.copies ?? []).enumerated()), id: \.element.id) { index, copy in
+                            Section("我的藏书 · 第 \(index + 1) 册") { copyDetails(copy) }
+                        }
+                        if !book.tags.isEmpty {
+                            Section("我的藏书") {
+                                DetailValue("标签", book.tags.map(\.name).joined(separator: "、"))
+                            }
+                        }
                     }
                 }
-                .padding(18)
+                .listStyle(.insetGrouped)
+                .refreshable { await reload() }
             } else if let error {
-                ContentUnavailableView("加载失败", systemImage: "wifi.exclamationmark", description: Text(error))
-            } else { ProgressView().padding(40) }
+                ContentUnavailableView {
+                    Label("暂时无法加载图书", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("重试") { Task { await reload() } }
+                }
+            } else {
+                ProgressView("正在加载图书")
+            }
         }
-        .background(Palette.background)
+        .navigationTitle("图书详情")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { if book != nil { ToolbarItem(placement: .topBarTrailing) { Button("编辑图书") { editing = true } } } }
-        .task { await reload() }
-        .refreshable { await reload() }
-        .sheet(isPresented: $editing, onDismiss: { Task { await reload() } }) {
-            if let book { EditBookSheet(book: book) }
+        .toolbar {
+            if book != nil {
+                ToolbarItem(placement: .topBarTrailing) { Button("编辑") { editing = true } }
+            }
         }
-        .sheet(item: $editingCopy, onDismiss: { Task { await reload() } }) { copy in
-            if let book { EditCopySheet(book: book, copy: copy) }
+        .task(id: bookId) { await reload() }
+        .onChange(of: store.isLoading) { _, value in
+            if !value && !editing { Task { await reload() } }
         }
+        .sheet(isPresented: $editing, onDismiss: {
+            if removedLastCopy { dismiss() }
+            else { Task { await reload() } }
+        }) {
+            if let book { EditBookSheet(book: book, onBookRemoved: { removedLastCopy = true }) }
+        }
+    }
+
+    private func bookIdentity(_ book: BookInfo) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 18) {
+                cover(book)
+                identityText(book).fixedSize(horizontal: true, vertical: true)
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                cover(book)
+                identityText(book)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private func cover(_ book: BookInfo) -> some View {
+        CoverView(url: book.coverUrl).frame(width: 92, height: 126).accessibilityHidden(true)
+    }
+
+    private func identityText(_ book: BookInfo) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(book.displayTitle).font(.title2.weight(.semibold))
+            Text(book.author.isEmpty ? "作者未录入" : book.author).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private func copyDetails(_ copy: CopyInfo) -> some View {
+        DetailValue("存放位置", copy.location)
+        DetailValue("阅读状态", CopyInfo.statusLabels[copy.status])
+        if let date = copy.acquiredOn { DetailValue("入藏日期", date) }
+        DetailValue("备注", copy.notes)
     }
 
     private func reload() async {
-        do { book = try await store.book(bookId); error = nil }
-        catch { self.error = error.localizedDescription }
+        do { book = try store.book(bookId); error = nil }
+        catch { self.book = nil; self.error = error.localizedDescription }
     }
 }
 
-private struct InfoLine: View {
+private struct DetailValue: View {
     let label: String
     let value: String
+    let monospaced: Bool
+
+    init(_ label: String, _ value: String?, monospaced: Bool = false) {
+        self.label = label
+        self.value = value.flatMap { $0.isEmpty ? nil : $0 } ?? "未填写"
+        self.monospaced = monospaced
+    }
+
     var body: some View {
-        HStack(alignment: .top) {
-            Text(label).foregroundStyle(Palette.muted).frame(width: 70, alignment: .leading)
-            Text(value).frame(maxWidth: .infinity, alignment: .leading)
-        }.font(.subheadline)
+        LabeledContent {
+            Text(value)
+                .font(monospaced ? .system(.subheadline, design: .monospaced) : .body)
+                .multilineTextAlignment(.trailing)
+                .fixedSize(horizontal: false, vertical: true)
+        } label: {
+            Text(label)
+        }
     }
 }
 
 struct SettingsView: View {
     @EnvironmentObject private var store: LibraryStore
+    @State private var login = false
+    @State private var confirmLogout = false
+    @State private var resolveConflict = false
+    @State private var importBooks = false
+    @State private var exportBooks = false
+    @State private var backup: LibraryBackup?
+    @State private var backupMessage: String?
     var body: some View {
         NavigationStack {
             Form {
-                Section("账号") {
-                    LabeledContent("用户名", value: store.username)
+                Section {
+                    if store.signedIn {
+                        LabeledContent("账号", value: store.username)
+                        Toggle("自动同步", isOn: Binding(
+                            get: { !store.syncPaused },
+                            set: { store.setSyncPaused(!$0) }
+                        ))
+                        LabeledContent("待同步", value: "\(store.pendingCount) 项")
+                        if store.needsLogin {
+                            Button("重新登录") { login = true }
+                        } else {
+                            Button(store.isLoading ? "正在同步" : "立即同步") {
+                                Task { await store.refresh() }
+                            }.disabled(store.isLoading || store.syncIssue != nil || store.syncPaused)
+                        }
+                        if let message = store.errorMessage { Text(message).foregroundStyle(.secondary) }
+                        if store.syncIssue != nil {
+                            Button("处理同步冲突") { resolveConflict = true }
+                        }
+                    } else {
+                        Button("登录并开启云同步") { login = true }
+                    }
+                } header: {
+                    Text("云同步")
+                } footer: {
+                    Text(store.syncPaused ? "同步已暂停。录入和编辑仍会保存在本机。" :
+                         store.signedIn ? "录入和编辑先保存在本机，联网后同步到账号。" :
+                         "无需登录即可使用。开启同步后，可在其他设备恢复藏书。")
                 }
-                Section("同步") {
-                    LabeledContent("待同步", value: "\(store.pending.count) 册")
-                    Button("立即同步") { Task { await store.syncPending() } }.disabled(store.pending.isEmpty)
+                if let message = store.storageError {
+                    Section("本机储存") { Text(message).foregroundStyle(.secondary) }
                 }
-                Section { Button("退出登录", role: .destructive) { Task { await store.logout() } } }
+                Section("书库备份") {
+                    Button("导出到文件") {
+                        backup = store.backup()
+                        exportBooks = true
+                    }.disabled(store.storageError != nil || store.localCount == 0)
+                    Button("从文件导入") { importBooks = true }.disabled(store.storageError != nil)
+                    if let backupMessage { Text(backupMessage).foregroundStyle(.secondary) }
+                }
+                if store.signedIn {
+                    Section {
+                        Button("退出账号", role: .destructive) {
+                            if store.pendingCount > 0 { confirmLogout = true }
+                            else { store.logout() }
+                        }
+                    }
+                }
             }
             .navigationTitle("设置")
+            .sheet(isPresented: $login) { LoginView() }
+            .fileExporter(isPresented: $exportBooks, document: backup, contentType: .json,
+                          defaultFilename: "我的藏书备份") { result in
+                switch result {
+                case .success: backupMessage = "已导出书库备份。"
+                case .failure(let error): backupMessage = error.localizedDescription
+                }
+                backup = nil
+            }
+            .fileImporter(isPresented: $importBooks, allowedContentTypes: [.json]) { result in
+                do {
+                    let url = try result.get()
+                    let accessed = url.startAccessingSecurityScopedResource()
+                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                    guard size <= 20 * 1024 * 1024 else {
+                        throw LocalLibraryError.invalid("备份文件最大为 20 MB。")
+                    }
+                    let count = try store.importBackup(LibraryBackup.decode(Data(contentsOf: url)))
+                    backupMessage = count == 0 ? "这份备份没有新的记录。" : "已导入 \(count) 册。"
+                } catch { backupMessage = error.localizedDescription }
+            }
+            .confirmationDialog("处理同步冲突", isPresented: $resolveConflict) {
+                if store.syncIssue == .changed {
+                    Button("用本机修改覆盖云端", role: .destructive) { store.resolveSyncIssue(keepLocal: true) }
+                }
+                Button("放弃本机的冲突修改", role: .destructive) { store.resolveSyncIssue(keepLocal: false) }
+            } message: {
+                Text(store.errorMessage ?? "请选择保留哪一份。")
+            }
+            .confirmationDialog("还有未同步的更改", isPresented: $confirmLogout) {
+                Button("退出账号", role: .destructive) { store.logout() }
+            } message: {
+                Text("更改会保留在此账号的本机书库，下次登录后继续同步。")
+            }
         }
     }
 }

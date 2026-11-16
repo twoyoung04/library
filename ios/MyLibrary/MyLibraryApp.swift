@@ -1,4 +1,5 @@
 import SwiftUI
+import Network
 
 enum Palette {
     static let background = Color(red: 0.965, green: 0.952, blue: 0.925)
@@ -13,75 +14,98 @@ struct MyLibraryApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if store.signedIn { MainTabs() }
-                else { LoginView() }
-            }
-            .environmentObject(store)
-            .tint(Palette.accent)
+            MainTabs()
+                .environmentObject(store)
+                .tint(Palette.accent)
         }
     }
 }
 
 struct MainTabs: View {
     @EnvironmentObject private var store: LibraryStore
-    @State private var selection = 0
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var scanning = false
+    @State private var manualEntry = false
+    @State private var manualDraft = BookDraft()
 
     var body: some View {
-        TabView(selection: $selection) {
-            ShelfView().tabItem { Label("书库", systemImage: "books.vertical") }.tag(0)
-            ScanView(isSelected: selection == 1).tabItem { Label("录入", systemImage: "viewfinder") }.tag(1)
-            SettingsView().tabItem { Label("设置", systemImage: "gearshape") }.tag(2)
+        TabView {
+            ShelfView(onScan: { scanning = true }, onManual: {
+                manualDraft = BookDraft()
+                manualEntry = true
+            })
+                .tabItem { Label("书库", systemImage: "books.vertical") }
+            SettingsView().tabItem { Label("设置", systemImage: "gearshape") }
+        }
+        .fullScreenCover(isPresented: $scanning) { ScanView() }
+        .sheet(isPresented: $manualEntry) {
+            NewCopySheet(draft: $manualDraft, existingCopyCount: nil, onFinish: { _ in })
         }
         .task { await store.refresh() }
+        .task {
+            let monitor = NWPathMonitor()
+            let paths = AsyncStream<NWPath.Status> { continuation in
+                monitor.pathUpdateHandler = { continuation.yield($0.status) }
+                continuation.onTermination = { @Sendable _ in monitor.cancel() }
+                monitor.start(queue: DispatchQueue(label: "library.network"))
+            }
+            for await path in paths where path == .satisfied { await store.refresh() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await store.refresh() } }
+        }
     }
 }
 
 struct LoginView: View {
     @EnvironmentObject private var store: LibraryStore
+    @Environment(\.dismiss) private var dismiss
     @State private var username = ""
     @State private var password = ""
+    @State private var importLocal = false
     @State private var working = false
     @State private var message: String?
 
     var body: some View {
-        ZStack {
-            Palette.background.ignoresSafeArea()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    Spacer(minLength: 55)
-                    Image(systemName: "books.vertical.fill")
-                        .font(.system(size: 38, weight: .light)).foregroundStyle(Palette.accent)
-                    Text("我的藏书")
-                        .font(.system(size: 42, weight: .semibold, design: .serif))
-                        .foregroundStyle(Palette.ink)
-                    Text("随手录入，慢慢收藏。")
-                        .font(.subheadline).foregroundStyle(Palette.muted)
-                    VStack(spacing: 14) {
-                        TextField("用户名", text: $username)
-                            .textContentType(.username).textInputAutocapitalization(.never)
-                        Divider()
-                        SecureField("密码", text: $password).textContentType(.password)
-                    }
-                    .padding(20).background(.white, in: RoundedRectangle(cornerRadius: 20))
-                    if let message { Text(message).font(.footnote).foregroundStyle(.red) }
-                    Button {
-                        Task {
-                            working = true; defer { working = false }
-                            do { try await store.login(username: username, password: password) }
-                            catch { message = error.localizedDescription }
-                        }
-                    } label: {
-                        HStack { Spacer(); if working { ProgressView().tint(.white) } else { Text("登录书库") }; Spacer() }
-                            .font(.headline).padding(16)
-                    }
-                    .buttonStyle(.plain).foregroundStyle(.white)
-                    .background(Palette.ink, in: RoundedRectangle(cornerRadius: 16))
-                    .disabled(working || username.isEmpty || password.isEmpty)
-                    Spacer(minLength: 40)
+        NavigationStack {
+            Form {
+                Section("登录账号") {
+                    TextField("用户名", text: $username)
+                        .textContentType(.username).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    SecureField("密码", text: $password).textContentType(.password)
                 }
-                .padding(28)
+                if !store.signedIn && store.localCount > 0 {
+                    Section {
+                        Toggle("同时导入本机书库", isOn: $importLocal)
+                    } footer: {
+                        Text("将当前本机的 \(store.localCount) 册图书加入账号。原来的本机书库仍可在退出后使用。")
+                    }
+                }
+                if let message { Section { Text(message).foregroundStyle(.red) } }
             }
+            .navigationTitle("云同步")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(working) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("登录") { Task { await signIn() } }
+                        .disabled(working || (!store.needsLogin && username.isEmpty) || password.isEmpty)
+                }
+            }
+            .disabled(working)
+            .interactiveDismissDisabled(working)
+            .onAppear { username = store.username }
         }
+    }
+
+    private func signIn() async {
+        working = true
+        message = nil
+        defer { working = false }
+        do {
+            try await store.login(username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+                                  password: password, importLocal: importLocal)
+            dismiss()
+        } catch { message = error.localizedDescription }
     }
 }

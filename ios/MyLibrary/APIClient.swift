@@ -4,6 +4,9 @@ import Security
 enum APIError: LocalizedError {
     case invalidServer
     case notSignedIn
+    case notFound
+    case conflict
+    case rejected(String)
     case server(String)
     case invalidResponse
 
@@ -11,6 +14,9 @@ enum APIError: LocalizedError {
         switch self {
         case .invalidServer: "请输入有效的 HTTPS 服务地址。"
         case .notSignedIn: "请重新登录。"
+        case .notFound: "未找到这条记录，它可能已在其他设备删除。"
+        case .conflict: "这条记录已在其他设备修改，请选择要保留的版本。"
+        case .rejected(let message): message
         case .server(let message): message
         case .invalidResponse: "服务器返回了无法识别的数据。"
         }
@@ -58,7 +64,8 @@ struct APIClient {
     }()
 
     func call<T: Decodable>(_ path: String, method: String = "GET", query: [URLQueryItem] = [],
-                            body: Encodable? = nil, authorized: Bool = true) async throws -> T {
+                            body: Encodable? = nil, authorized: Bool = true,
+                            revision: String? = nil) async throws -> T {
         guard let base = URL(string: server), base.scheme == "https", base.host != nil else {
             throw APIError.invalidServer
         }
@@ -69,6 +76,7 @@ struct APIClient {
         request.httpMethod = method
         request.timeoutInterval = 25
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let revision { request.setValue(revision, forHTTPHeaderField: "If-Match") }
         if authorized {
             guard let token else { throw APIError.notSignedIn }
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -81,7 +89,11 @@ struct APIClient {
         guard let response = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard (200..<300).contains(response.statusCode) else {
             let message = (try? decoder.decode(ServerError.self, from: data).error) ?? "请求失败（\(response.statusCode)）。"
-            throw response.statusCode == 401 && authorized ? APIError.notSignedIn : APIError.server(message)
+            if response.statusCode == 401 && authorized { throw APIError.notSignedIn }
+            if response.statusCode == 404 || response.statusCode == 410 { throw APIError.notFound }
+            if response.statusCode == 412 { throw APIError.conflict }
+            if response.statusCode == 400 || response.statusCode == 409 { throw APIError.rejected(message) }
+            throw APIError.server(message)
         }
         do { return try decoder.decode(T.self, from: data) }
         catch { throw APIError.invalidResponse }
@@ -110,10 +122,33 @@ struct BookChanges: Encodable {
         publisher = draft.publisher; publishedYear = draft.publishedYear
         coverUrl = draft.coverUrl; tags = draft.tags
     }
+
+    private enum CodingKeys: String, CodingKey { case isbn, title, author, publisher, publishedYear, coverUrl, tags }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(isbn, forKey: .isbn)
+        try values.encode(title, forKey: .title)
+        try values.encode(author, forKey: .author)
+        try values.encode(publisher, forKey: .publisher)
+        try values.encode(publishedYear, forKey: .publishedYear)
+        try values.encode(coverUrl, forKey: .coverUrl)
+        try values.encode(tags, forKey: .tags)
+    }
 }
 struct CopyChanges: Encodable {
     let location: String
     let status: String
     let acquiredOn: String?
     let notes: String
+
+    private enum CodingKeys: String, CodingKey { case location, status, acquiredOn, notes }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(location, forKey: .location)
+        try values.encode(status, forKey: .status)
+        try values.encode(acquiredOn, forKey: .acquiredOn)
+        try values.encode(notes, forKey: .notes)
+    }
 }

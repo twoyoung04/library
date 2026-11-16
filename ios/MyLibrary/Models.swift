@@ -6,6 +6,9 @@ struct TagInfo: Codable, Identifiable, Hashable {
 }
 
 struct CopyInfo: Codable, Identifiable, Hashable {
+    static let readingStates = [("unread", "未读"), ("reading", "在读"), ("read", "已读"), ("loaned", "借出")]
+    static let statusLabels = Dictionary(uniqueKeysWithValues: readingStates)
+
     let id: Int
     let editionId: Int
     var location: String
@@ -13,6 +16,7 @@ struct CopyInfo: Codable, Identifiable, Hashable {
     var acquiredOn: String?
     var notes: String
     let createdAt: String
+    var revision: String?
 }
 
 struct BookInfo: Codable, Identifiable, Hashable {
@@ -28,6 +32,7 @@ struct BookInfo: Codable, Identifiable, Hashable {
     var copyCount: Int?
     var updatedAt: String
     var copies: [CopyInfo]?
+    var revision: String?
 
     var displayTitle: String { title.isEmpty ? "待补充书名" : title }
 }
@@ -63,7 +68,12 @@ struct BookMetadata: Codable {
     let coverUrl: String?
 }
 
-struct CreateResponse: Codable { let copy: CopyInfo; let editionId: Int; let replayed: Bool }
+struct CreateResponse: Codable {
+    let copy: CopyInfo
+    let editionId: Int
+    let replayed: Bool
+    let bookRevision: String?
+}
 struct CopyResponse: Codable { let copy: CopyInfo }
 struct EmptyResponse: Codable { let ok: Bool }
 

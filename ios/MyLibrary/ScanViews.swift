@@ -6,150 +6,176 @@ import Vision
 struct ScanView: View {
     @EnvironmentObject private var store: LibraryStore
     @Environment(\.scenePhase) private var scenePhase
-    let isSelected: Bool
+    @Environment(\.dismiss) private var dismiss
+    @State private var torch = false
+    @State private var scanSettings = false
+    @State private var lastSavedID: String?
     @State private var draft = BookDraft()
     @State private var photo: PhotosPickerItem?
     @State private var manualISBN = ""
     @State private var showManual = false
     @State private var showDraft = false
-    @State private var autoSave = false
     @State private var continuous = false
     @State private var busy = false
     @State private var scanPaused = false
     @State private var feedback = "将书背条码放入取景框"
     @State private var savedCount = 0
     @State private var recentCode = ""
-    @State private var recentTime = Date.distantPast
     @State private var cameraError: String?
     @State private var existingCopyCount: Int?
 
-    private var cameraActive: Bool { isSelected && scenePhase == .active && !showDraft && !busy && !scanPaused }
+    private var cameraActive: Bool { scenePhase == .active && !showDraft && !showManual && !scanSettings && !busy }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Palette.background.ignoresSafeArea()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 17) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text("录入新书").font(.system(size: 35, weight: .semibold, design: .serif))
+        ZStack {
+            Color.black.ignoresSafeArea()
+            ScannerCamera(active: cameraActive, torch: torch, onCode: { code in
+                Task { await handleCode(code) }
+            }, onError: { cameraError = $0 })
+            .ignoresSafeArea()
+
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(.white.opacity(0.85), lineWidth: 2)
+                .frame(width: 250, height: 120)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+
+            VStack(spacing: 12) {
+                HStack {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel("关闭扫码")
+                    Spacer()
+                    Text(continuous ? "连续扫描" : "扫描 ISBN").font(.headline)
+                    Spacer()
+                    Button { torch.toggle() } label: {
+                        Image(systemName: torch ? "flashlight.on.fill" : "flashlight.off.fill")
+                    }.accessibilityLabel(torch ? "关闭手电筒" : "开启手电筒")
+                }
+                Spacer()
+                VStack(spacing: 12) {
+                    Text(cameraError ?? feedback).font(.subheadline)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                    if savedCount > 0 {
+                        HStack {
+                            Text("本次录入 \(savedCount) 册")
                             Spacer()
-                            if savedCount > 0 { Text("本次 \(savedCount) 册").font(.subheadline).foregroundStyle(Palette.accent) }
-                        }
-                        ZStack {
-                            ScannerCamera(active: cameraActive, onCode: { code in
-                                Task { await handleCode(code) }
-                            }, onError: { cameraError = $0 })
-                            .frame(height: 325).clipShape(RoundedRectangle(cornerRadius: 24))
-                            RoundedRectangle(cornerRadius: 17).stroke(.white.opacity(0.85), lineWidth: 2)
-                                .frame(width: 240, height: 125)
-                            VStack {
-                                Spacer()
-                                Label("对准 ISBN 条码", systemImage: "viewfinder")
-                                    .font(.subheadline.weight(.medium)).foregroundStyle(.white)
-                                    .padding(.horizontal, 14).padding(.vertical, 8)
-                                    .background(.black.opacity(0.60), in: Capsule())
-                                    .padding(.bottom, 18)
+                            if let lastSavedID {
+                                Button("撤销上一册") { undo(lastSavedID) }
                             }
                         }
-                        if let cameraError { Text(cameraError).font(.footnote).foregroundStyle(.red) }
-                        HStack(spacing: 10) {
-                            Image(systemName: busy ? "hourglass" : "checkmark.circle.fill")
-                            Text(feedback).lineLimit(2)
-                        }
-                        .font(.subheadline).foregroundStyle(Palette.ink)
-                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 14))
-                        if scanPaused {
-                            Button("继续扫描") { recentCode = ""; scanPaused = false }
-                                .font(.headline).frame(maxWidth: .infinity).padding(15)
-                                .foregroundStyle(.white)
-                                .background(Palette.ink, in: RoundedRectangle(cornerRadius: 14))
-                        }
-                        HStack(spacing: 12) {
-                            PhotosPicker(selection: $photo, matching: .images) {
-                                Label("从照片识别", systemImage: "photo")
-                                    .frame(maxWidth: .infinity).padding(15)
-                            }
-                            Button { showManual = true } label: {
-                                Label("手动输入", systemImage: "keyboard")
-                                    .frame(maxWidth: .infinity).padding(15)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 14))
-                        VStack(alignment: .leading, spacing: 15) {
-                            Toggle("扫描后自动保存", isOn: $autoSave)
-                            Toggle("连续扫描", isOn: $continuous).disabled(!autoSave)
-                            Divider()
-                            TextField("存放位置（连续录入时保留）", text: $draft.location)
-                            TextField("标签，用逗号分隔", text: $draft.tags)
-                            Text("自动保存只在网络可用时立即入库；断网录入会显示为待同步。")
-                                .font(.caption).foregroundStyle(Palette.muted)
-                        }
-                        .padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18))
+                        .font(.subheadline)
                     }
-                    .padding(18)
+                    if scanPaused {
+                        Button("继续扫描") { scanPaused = false; feedback = "将书背条码放入取景框" }
+                    } else if continuous && !recentCode.isEmpty {
+                        Button("再次扫描相同条码") { recentCode = "" }
+                    }
+                    HStack {
+                        PhotosPicker(selection: $photo, matching: .images) {
+                            Label("相册", systemImage: "photo")
+                        }
+                        Spacer()
+                        Button { showManual = true } label: { Label("手动输入", systemImage: "keyboard") }
+                        Spacer()
+                        Button { scanSettings = true } label: {
+                            Label("录入设置", systemImage: "slider.horizontal.3")
+                        }
+                    }
+                    .labelStyle(.iconOnly)
+                }
+                .padding(14)
+                .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 22))
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 12)
+            .buttonStyle(ScannerButtonStyle())
+            .foregroundStyle(.white)
+        }
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: $scanSettings) {
+            NavigationStack {
+                Form {
+                    Toggle("连续扫描并保存", isOn: $continuous)
+                    TextField("存放位置", text: $draft.location)
+                    TextField("标签，用逗号分隔", text: $draft.tags)
+                }
+                .navigationTitle("录入设置")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button("完成") { scanSettings = false } }
                 }
             }
-            .onChange(of: autoSave) { _, value in if !value { continuous = false } }
-            .onChange(of: photo) { _, value in
-                guard let value else { return }
-                Task {
-                    busy = true
-                    feedback = "正在识别照片…"
-                    if let data = try? await value.loadTransferable(type: Data.self),
-                       let code = await PhotoISBN.recognize(data) {
-                        busy = false
-                        await handleCode(code)
-                    } else {
-                        busy = false
-                        feedback = "未找到有效 ISBN，请拍清楚条码或数字。"
-                    }
-                    photo = nil
+            .presentationDetents([.medium])
+        }
+        .onChange(of: photo) { _, value in
+            guard let value else { return }
+            Task {
+                busy = true
+                feedback = "正在识别照片…"
+                if let data = try? await value.loadTransferable(type: Data.self),
+                   let code = await PhotoISBN.recognize(data) {
+                    busy = false
+                    scanPaused = false
+                    recentCode = ""
+                    await handleCode(code)
+                } else {
+                    busy = false
+                    feedback = "未找到有效 ISBN，请拍清楚条码或数字。"
                 }
-            }
-            .alert("输入 ISBN", isPresented: $showManual) {
-                TextField("ISBN-10 / ISBN-13", text: $manualISBN)
-                Button("查询") {
-                    let raw = manualISBN; manualISBN = ""
-                    Task { await handleCode(raw) }
-                }
-                Button("没有 ISBN，手动录入") {
-                    manualISBN = ""
-                    draft.nextCopy()
-                    existingCopyCount = nil
-                    scanPaused = true
-                    showDraft = true
-                }
-                Button("取消", role: .cancel) { manualISBN = "" }
-            } message: { Text("也可在下一步手动补充书名。") }
-            .sheet(isPresented: $showDraft) {
-                NewCopySheet(draft: $draft, existingCopyCount: existingCopyCount) { saved in
-                    if saved { savedCount += 1; feedback = "已录入第 \(savedCount) 册" }
-                    else { feedback = "已暂存，等待网络恢复后同步" }
-                    if saved || store.pending.contains(where: { $0.requestId == draft.requestId }) {
-                        draft.nextCopy()
-                    }
-                }
+                photo = nil
             }
         }
+        .alert("输入 ISBN", isPresented: $showManual) {
+            TextField("ISBN-10 / ISBN-13", text: $manualISBN)
+            Button("录入") {
+                let raw = manualISBN; manualISBN = ""; scanPaused = false; recentCode = ""
+                Task { await handleCode(raw) }
+            }
+            Button("没有 ISBN，手动录入") {
+                manualISBN = ""
+                draft.nextCopy()
+                existingCopyCount = nil
+                scanPaused = true
+                showDraft = true
+            }
+            Button("取消", role: .cancel) { manualISBN = "" }
+        } message: { Text("也可在下一步手动补充书名。") }
+        .sheet(isPresented: $showDraft) {
+            NewCopySheet(draft: $draft, existingCopyCount: existingCopyCount) { _ in
+                lastSavedID = draft.requestId
+                savedCount += 1
+                feedback = "已保存到本机"
+                draft.nextCopy()
+            }
+            .presentationDetents([.large])
+        }
+    }
+
+    private func undo(_ requestID: String) {
+        do {
+            try store.undoCreate(requestID)
+            lastSavedID = nil
+            savedCount = max(0, savedCount - 1)
+            feedback = "已撤销上一册"
+        } catch { feedback = error.localizedDescription }
     }
 
     private func handleCode(_ raw: String) async {
         guard let isbn = ISBN.normalize(raw) else { feedback = "ISBN 无效，请核对数字。"; return }
-        guard !busy else { return }
-        if isbn == recentCode && Date().timeIntervalSince(recentTime) < 2.5 { return }
-        recentCode = isbn; recentTime = Date()
+        guard !busy, !showDraft, !scanPaused else { return }
+        if isbn == recentCode { return }
+        if draft.isbn != isbn { draft.nextCopy() }
+        recentCode = isbn
         existingCopyCount = nil
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         draft.isbn = isbn
-        if autoSave && !isbn.hasPrefix("977") {
+        if continuous && !isbn.hasPrefix("977") {
             busy = true; feedback = "正在保存 \(isbn)…"
             do {
-                let saved = try await store.create(draft)
-                if saved { savedCount += 1 }
-                feedback = saved ? "已录入第 \(savedCount) 册 · \(isbn)" : "已暂存 \(isbn)，等待同步"
+                let saved = try store.create(draft)
+                if saved { savedCount += 1; lastSavedID = draft.requestId }
+                feedback = "已保存 ISBN \(isbn)"
                 UINotificationFeedbackGenerator().notificationOccurred(saved ? .success : .warning)
                 draft.nextCopy()
             } catch {
@@ -157,7 +183,6 @@ struct ScanView: View {
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
             }
             busy = false
-            if !continuous { autoSave = false; scanPaused = true }
         } else {
             scanPaused = true
             if isbn.hasPrefix("977") { feedback = "期刊条码：请在备注中核对并填写期号" }
@@ -175,6 +200,15 @@ struct ScanView: View {
                 else if let metadata = result.metadata { draft.apply(metadata) }
             } catch { /* Manual entry remains available. */ }
         }
+    }
+}
+
+private struct ScannerButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 8)
+            .frame(minWidth: 44, minHeight: 44)
+            .background(.white.opacity(configuration.isPressed ? 0.30 : 0.16), in: Capsule())
     }
 }
 
@@ -212,7 +246,7 @@ struct NewCopySheet: View {
                         Task {
                             saving = true; defer { saving = false }
                             do {
-                                let saved = try await store.create(draft)
+                                let saved = try store.create(draft)
                                 onFinish(saved); dismiss()
                             } catch { message = error.localizedDescription }
                         }
