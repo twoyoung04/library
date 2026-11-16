@@ -1,9 +1,22 @@
 import Foundation
 import SwiftUI
 
+enum ServerConfig {
+    static let defaultURL = "https://wuminglib.site"
+
+    static func currentURL() -> String {
+        let saved = UserDefaults.standard.string(forKey: "libraryServer")
+        if saved == "https://lovaime.com" {
+            UserDefaults.standard.set(defaultURL, forKey: "libraryServer")
+            return defaultURL
+        }
+        return saved ?? defaultURL
+    }
+}
+
 @MainActor
 final class LibraryStore: ObservableObject {
-    @Published var server = UserDefaults.standard.string(forKey: "libraryServer") ?? "https://lovaime.com"
+    @Published var server = ServerConfig.currentURL()
     @Published var token = TokenStore.read()
     @Published var username = UserDefaults.standard.string(forKey: "libraryUsername") ?? ""
     @Published var items: [BookItem] = []

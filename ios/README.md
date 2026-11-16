@@ -5,6 +5,6 @@
 1. 安装 Xcode 和 [XcodeGen](https://github.com/yonaskolb/XcodeGen)。
 2. 在 `ios` 目录运行 `xcodegen generate`，打开生成的 `MyLibrary.xcodeproj`。
 3. 在 Xcode 中将 Bundle Identifier 改为自己的标识，并选择签名团队。
-4. 运行 App。登录页默认使用国内服务 `https://lovaime.com`，输入现有账号。服务需部署包含 `/api/mobile/` 接口的版本。
+4. 运行 App。登录页默认使用 `https://wuminglib.site`，输入现有账号。旧版保存的 `https://lovaime.com` 会自动切换；手动配置的其他地址会保留。服务需部署包含 `/api/mobile/` 接口的版本。
 
 应用支持书库浏览、搜索、详情与编辑、原生相机扫码、照片中的条码或 ISBN 数字识别、手动录入、连续扫描、离线浏览和待同步录入。扫码录入请求使用固定 UUID；网络重试不会重复新增副本。

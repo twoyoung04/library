@@ -39,7 +39,7 @@ struct MainTabs: View {
 
 struct LoginView: View {
     @EnvironmentObject private var store: LibraryStore
-    @State private var server = UserDefaults.standard.string(forKey: "libraryServer") ?? "https://lovaime.com"
+    @State private var server = ServerConfig.currentURL()
     @State private var username = ""
     @State private var password = ""
     @State private var working = false
