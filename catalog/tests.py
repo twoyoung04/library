@@ -1,5 +1,7 @@
 import os
 from datetime import datetime
+import json
+from uuid import uuid4
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -47,6 +49,56 @@ class LoginCsrfTests(TestCase):
             'csrfmiddlewaretoken': 'invalid',
         })
         self.assertEqual(response.status_code, 403)
+
+
+class MobileApiTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='owner', password='safe-test-password')
+        response = self.client.post('/api/mobile/login/',
+                                    data=json.dumps({'username': 'owner', 'password': 'safe-test-password'}),
+                                    content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.auth = {'HTTP_AUTHORIZATION': 'Bearer ' + response.json()['token']}
+
+    def test_auth_and_logout(self):
+        self.assertEqual(self.client.get('/api/mobile/books/').status_code, 401)
+        self.assertEqual(self.client.get('/api/mobile/me/', **self.auth).json()['username'], 'owner')
+        self.assertEqual(self.client.post('/api/mobile/logout/', **self.auth).status_code, 200)
+        self.assertEqual(self.client.get('/api/mobile/me/', **self.auth).status_code, 401)
+
+    @patch('catalog.mobile_api._book_metadata', return_value={})
+    def test_create_is_idempotent_and_reuses_edition(self, _lookup):
+        first_id = str(uuid4())
+        data = {'request_id': first_id, 'isbn': '9780140328721', 'location': '书架 A', 'tags': '小说'}
+        first = self.client.post('/api/mobile/copies/', json.dumps(data),
+                                 content_type='application/json', **self.auth)
+        self.assertEqual(first.status_code, 201)
+        repeated = self.client.post('/api/mobile/copies/', json.dumps(data),
+                                    content_type='application/json', **self.auth)
+        self.assertEqual(repeated.status_code, 200)
+        self.assertTrue(repeated.json()['replayed'])
+        self.assertEqual(Copy.objects.count(), 1)
+        data['request_id'] = str(uuid4())
+        another = self.client.post('/api/mobile/copies/', json.dumps(data),
+                                   content_type='application/json', **self.auth)
+        self.assertEqual(another.status_code, 201)
+        self.assertEqual(Edition.objects.count(), 1)
+        self.assertEqual(Copy.objects.count(), 2)
+        detail = self.client.get(f"/api/mobile/books/{first.json()['edition_id']}/", **self.auth).json()
+        self.assertEqual(detail['book']['copy_count'], 2)
+
+    def test_search_update_and_delete(self):
+        edition = Edition.objects.create(title='Alpha', isbn='9780140328721')
+        copy = Copy.objects.create(edition=edition, location='书架 B')
+        self.assertEqual(self.client.get('/api/mobile/books/?q=Alpha', **self.auth).json()['total'], 1)
+        self.assertEqual(self.client.get('/api/mobile/books/?location=missing', **self.auth).json()['total'], 0)
+        edited = self.client.patch(f'/api/mobile/copies/{copy.pk}/',
+                                   json.dumps({'location': '书架 C', 'status': 'reading'}),
+                                   content_type='application/json', **self.auth)
+        self.assertEqual(edited.json()['copy']['location'], '书架 C')
+        self.assertEqual(edited.json()['copy']['status'], 'reading')
+        self.assertEqual(self.client.delete(f'/api/mobile/copies/{copy.pk}/', **self.auth).status_code, 200)
+        self.assertFalse(Edition.objects.filter(pk=edition.pk).exists())
 
 
 class LibraryFlowTests(TestCase):

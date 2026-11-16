@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import mobile_api, views
 
 urlpatterns = [
     path('', views.book_list, name='book_list'),
@@ -16,6 +16,16 @@ urlpatterns = [
     path('categories/', views.legacy_categories, name='categories'),
     path('api/lookup/', views.lookup_isbn, name='lookup_isbn'),
     path('api/scan-save/', views.scan_save, name='scan_save'),
+    path('api/mobile/login/', mobile_api.login),
+    path('api/mobile/logout/', mobile_api.logout),
+    path('api/mobile/me/', mobile_api.me),
+    path('api/mobile/books/', mobile_api.books),
+    path('api/mobile/books/<int:pk>/', mobile_api.book_detail),
+    path('api/mobile/books/<int:pk>/edit/', mobile_api.update_book),
+    path('api/mobile/copies/', mobile_api.create_copy),
+    path('api/mobile/copies/<int:pk>/', mobile_api.copy_detail),
+    path('api/mobile/filters/', mobile_api.filters),
+    path('api/mobile/lookup/', mobile_api.lookup),
     path('export/', views.export_csv, name='export_csv'),
     path('import/', views.import_csv, name='import_csv'),
 ]

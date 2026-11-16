@@ -1,6 +1,7 @@
 from django.db import models
 from django.urls import reverse
 from urllib.parse import urlparse
+from django.conf import settings
 
 
 class Tag(models.Model):
@@ -74,3 +75,20 @@ class Copy(models.Model):
 
     def __str__(self):
         return f'{self.edition} #{self.pk}'
+
+
+class MobileToken(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    digest = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+
+class MobileSaveRequest(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    request_id = models.UUIDField()
+    copy = models.ForeignKey(Copy, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'request_id'], name='unique_mobile_save_request')]
