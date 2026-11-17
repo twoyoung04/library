@@ -17,10 +17,11 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET
 
+from .bibliography import book_metadata as _book_metadata, edition_fields as _edition_fields
 from .forms import parse_tag_names
 from .isbn import normalize_isbn
 from .models import Copy, Edition, MobileSaveRequest, MobileToken, Tag
-from .views import _add_tags, _book_metadata, _edition_fields, _save_tags
+from .views import _add_tags, _save_tags
 
 
 def failure(message, status=400):
@@ -366,7 +367,7 @@ def copy_detail(request, pk):
 
 @require_GET
 def public_book_metadata(request):
-    # This endpoint only queries public book sources; it never reads a private library.
+    # The shared catalog and its upstream providers contain no private library records.
     try:
         isbn = normalize_isbn(request.GET.get('isbn', ''))
     except ValueError as exc:

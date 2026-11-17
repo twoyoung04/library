@@ -646,7 +646,7 @@ class LibraryFlowTests(TestCase):
         google.assert_not_called()
         openlibrary.assert_not_called()
 
-    @patch('catalog.views.lookup_book', return_value={'title': '国内书', 'source': '无名图书'})
+    @patch('catalog.bibliography.lookup_book', return_value={'title': '国内书', 'source': '无名图书'})
     def test_lookup_endpoint_caches_result(self, lookup):
         for _ in range(2):
             response = self.client.get(reverse('lookup_isbn'), {'isbn': '9787544258975'})

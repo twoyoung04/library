@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, router
 from django.urls import reverse
 from urllib.parse import urlparse
 from django.conf import settings
@@ -18,8 +18,24 @@ class Tag(models.Model):
         return self.name
 
 
+class PublicEdition(models.Model):
+    isbn = models.CharField('ISBN-13', max_length=13, unique=True)
+    title = models.CharField('书名', max_length=300)
+    author = models.CharField('作者', max_length=300, blank=True)
+    publisher = models.CharField('出版社', max_length=200, blank=True)
+    published_year = models.PositiveSmallIntegerField('出版年', null=True, blank=True)
+    cover_url = models.URLField('封面链接', max_length=1000, blank=True)
+    source = models.CharField('书目来源', max_length=100)
+    created_at = models.DateTimeField('收录时间', auto_now_add=True)
+
+    def __str__(self):
+        return self.title
+
+
 class Edition(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    public_edition = models.ForeignKey(PublicEdition, on_delete=models.SET_NULL, null=True,
+                                       editable=False, related_name='library_editions')
     isbn = models.CharField('ISBN', max_length=13, null=True, blank=True)
     title = models.CharField('书名', max_length=300, blank=True)
     author = models.CharField('作者', max_length=300, blank=True)
@@ -30,6 +46,18 @@ class Edition(models.Model):
     tags = models.ManyToManyField(Tag, blank=True, related_name='editions', verbose_name='标签')
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    def save(self, *args, update_fields=None, **kwargs):
+        if update_fields is None or {'isbn', 'public_edition'}.intersection(update_fields):
+            if self.isbn:
+                database = kwargs.get('using') or router.db_for_write(Edition, instance=self)
+                self.public_edition_id = PublicEdition.objects.using(database).filter(
+                    isbn=self.isbn).values_list('pk', flat=True).first()
+            else:
+                self.public_edition_id = None
+            if update_fields is not None:
+                update_fields = set(update_fields) | {'public_edition'}
+        super().save(*args, update_fields=update_fields, **kwargs)
 
     @property
     def cover_display_url(self):

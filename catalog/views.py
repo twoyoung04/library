@@ -1,7 +1,6 @@
 import csv
 import hashlib
 import io
-import os
 import re
 from datetime import date
 from urllib.error import HTTPError, URLError
@@ -21,9 +20,9 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 from django.utils.functional import cached_property
 
+from .bibliography import book_metadata as _book_metadata, edition_fields as _edition_fields
 from .forms import CopyForm, EditionForm, TagForm, parse_tag_names
 from .isbn import normalize_isbn
-from .lookup import lookup_book
 from .models import Copy, Edition, Tag
 
 
@@ -44,28 +43,6 @@ def _save_tags(edition, names):
 def _add_tags(edition, names):
     if names:
         edition.tags.add(*_tag_objects(edition.owner, names))
-
-
-def _book_metadata(isbn):
-    provider_config = os.environ.get('SHOWAPI_APP_KEY', '') + '|' + os.environ.get('JUHE_ISBN_KEY', '')
-    provider_version = hashlib.sha256(provider_config.encode()).hexdigest()[:12]
-    key = f'book-lookup:v6:{provider_version}:{isbn}'
-    result = cache.get(key)
-    if result is None:
-        result = lookup_book(isbn) or {}
-        cache.set(key, result, 24 * 60 * 60 if result else 60 * 60)
-    return result
-
-
-def _edition_fields(metadata):
-    year = metadata.get('published_year')
-    return {
-        'title': str(metadata.get('title') or '').strip()[:300],
-        'author': str(metadata.get('author') or '').strip()[:300],
-        'publisher': str(metadata.get('publisher') or '').strip()[:200],
-        'published_year': year if isinstance(year, int) and 1000 <= year <= 2100 else None,
-        'cover_url': str(metadata.get('cover_url') or '').strip()[:1000],
-    }
 
 
 class KnownCountPaginator(Paginator):
@@ -222,7 +199,7 @@ def book_new(request):
                                 setattr(edition, field, value)
                                 updates.append(field)
                         if updates:
-                            edition.save(update_fields=updates + ['updated_at'])
+                            edition.save(update_fields=updates + ['public_edition', 'updated_at'])
                     _add_tags(edition, edition_form.cleaned_data['tags_text'])
                     messages.info(request, '这个 ISBN 已存在，已为它新增一册。')
                 else:
@@ -374,7 +351,7 @@ def scan_save(request):
                     setattr(edition, field, value)
                     updates.append(field)
             if updates:
-                edition.save(update_fields=updates + ['updated_at'])
+                edition.save(update_fields=updates + ['public_edition', 'updated_at'])
         _add_tags(edition, tag_names)
         copy = copy_form.save(commit=False)
         copy.edition = edition
