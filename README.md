@@ -73,6 +73,8 @@ export JUHE_ISBN_KEY='你的聚合数据Key'
 部署结构：Nginx（HTTPS、静态文件）→ Gunicorn / Django → PostgreSQL。
 操作步骤见 [deploy/README.md](deploy/README.md)。生产环境使用 `DJANGO_ENV=production`，必须显式提供密钥；不会自动执行数据库迁移。
 
+可启用[公共书目采集服务](deploy/README.md#公共书目采集)。启动后每天自动收录商务印书馆新书、无名图书榜单及指定出版社目录，并按已有扫码来源回补缺失的公共书目。
+
 ## 数据与备份
 
 生产 PostgreSQL 是唯一数据源，开发环境通过 SSH 隧道直接访问它。旧 `db.sqlite3` 不作为迁移源。

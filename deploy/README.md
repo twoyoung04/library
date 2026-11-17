@@ -92,6 +92,31 @@ Nginx 从共享卷加载证书并提供前端静态资源；应用和数据库�
 - 用户放行公网 TCP 443 后，公网按域名/SNI及目标 IP 验证登录页与扫码 JS 均返回 200，证书校验通过；HTTP 返回 301 到 https://lovaime.com/。本机系统 DNS 暂仍缓存旧 IP，公共解析已是新 IP。
 - DNS 权威记录及公共解析已指向 `115.159.95.169`，部分客户端仍可能受旧 DNS 缓存影响。
 
+## 公共书目采集
+
+服务每天自动查询[商务印书馆官网新书](https://www.cp.com.cn/book/new.dhtml)、[无名图书的新书榜和周更新榜](https://www.book345.com/mcp)，以及无名图书的人民文学出版社、译林出版社、上海译文出版社、生活·读书·新知三联书店、商务印书馆、中华书局和中信出版社目录。只保存有效 ISBN、书名、作者、出版社和出版年。出版社目录采集当前列表，覆盖范围取决于来源实际展示的图书。
+
+商务印书馆每天读取首页至多 15 个图书详情，请求间隔一秒。其余来源各自独立记录采集进度。任务还会沿用扫码的国内 ISBN 查询链，每天补查最多 10 个尚未收录的藏书 ISBN，优先补查国内 ISBN，未命中七天后再查。采集只补充公共记录的空字段。书名或出版社冲突时保留候选，供管理员在 Django 后台的 Bibliography conflicts 中复核。
+
+先应用迁移，然后手动处理一轮并查看统计，最后启动持续采集。
+
+```bash
+mkdir -p deploy/bibliography-inbox
+docker compose build web
+docker compose run --rm web python manage.py migrate --noinput
+docker compose run --rm bibliography python manage.py collect_bibliography --discover
+docker compose up -d bibliography
+docker compose logs --tail=100 bibliography
+```
+
+每批最多写入 100 个候选，写入和进度在同一事务提交。持续失败时查看容器日志和 Django 后台的 Bibliography imports。
+
+如有额外交付的授权书目，可把 UTF-8 CSV 文件放到 `deploy/bibliography-inbox/`，或在服务器设置 `BIBLIOGRAPHY_FEED_URL` 指向 HTTPS CSV。必填列为 `isbn,title,source`，可选列为 `author,publisher,published_year`。交付本地文件时先使用 `.part` 后缀写入，完成后原子改名为 `.csv`。相同内容的文件只导入一次。
+
+如需补充 Open Library，在服务器 `.env` 设置 `BIBLIOGRAPHY_OPEN_LIBRARY=1`，再执行 `docker compose up -d --force-recreate bibliography`。服务先处理中文 CSV，然后检查新的月度版本快照。快照会收录有中文语言标记的版本、缺少语言标记但 ISBN 属于中国大陆组的版本，以及能回补当前藏书的版本。回补随月度快照执行。快照压缩文件约 9 GB，下载前为 Docker 存储预留足够空间，文件导入完成后会清理。快照提供的作者署名可直接录入，只有作者目录编号时作者可能留空。
+
+自动发布会用新镜像重建正在运行的采集服务。要暂停采集，可执行 `docker compose stop bibliography`。
+
 ## COS 封面
 
 目标桶 `cover-1307828558`。在服务器 `.env` 配置 `COS_REGION`、`COS_SECRET_ID`、`COS_SECRET_KEY`；权限至少覆盖该桶 `covers/` 前缀对象的 PutObject / GetObject。无需开放整个桶或提供公开访问权限。

@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 from .isbn import normalize_isbn
 
 
-def fetch_json(url, form=None, *, jsonp=False):
+def fetch_json(url, form=None, *, jsonp=False, raise_errors=False):
     headers = {'User-Agent': 'PersonalLibrary/1.0 (private catalog)', 'Accept': 'application/json'}
     if form is not None:
         headers['Content-Type'] = 'application/x-www-form-urlencoded'
@@ -22,10 +22,12 @@ def fetch_json(url, form=None, *, jsonp=False):
                 return json.loads(raw[1:-1] if raw.startswith('(') and raw.endswith(')') else raw)
             return json.load(response)
     except (HTTPError, URLError, TimeoutError, ValueError):
+        if raise_errors:
+            raise
         return None
 
 
-def fetch_html(url):
+def fetch_html(url, *, raise_errors=False):
     request = Request(url, headers={'User-Agent': 'PersonalLibrary/1.0 (private catalog)',
                                     'Accept': 'text/html'})
     try:
@@ -33,22 +35,31 @@ def fetch_html(url):
             return response.read(300_000).decode(response.headers.get_content_charset() or 'utf-8',
                                                  errors='replace')
     except (HTTPError, URLError, TimeoutError, ValueError):
+        if raise_errors:
+            raise
         return None
 
 
 def lookup_wuming(isbn):
     """Read only the bibliographic fields from the public Wuming Books API."""
     data = fetch_json('https://www.book345.com/api/detail/' + quote(isbn))
-    if not isinstance(data, dict) or not data.get('title') or not _same_isbn(data.get('isbn'), isbn):
+    if not isinstance(data, dict) or not _same_isbn(data.get('isbn'), isbn):
+        return None
+    return wuming_metadata(data)
+
+
+def wuming_metadata(data):
+    title = data.get('title')
+    if not isinstance(title, str) or not title.strip():
         return None
     extra = data.get('doubanExtra') or {}
     image = (extra.get('coverUrl') if isinstance(extra, dict) else '') or data.get('dbImg') or data.get('img') or ''
-    if image.startswith('/covers/'):
+    if isinstance(image, str) and image.startswith('/covers/'):
         image = 'https://www.book345.com' + image
     return {
-        'title': data['title'], 'author': data.get('author') or '',
-        'publisher': data.get('publisher') or '',
-        'published_year': _year(data.get('pubDate')),
+        'title': title, 'author': _names(data.get('author')),
+        'publisher': _names(data.get('publisher')),
+        'published_year': _year(data.get('pubDate') or data.get('pub_date')),
         'cover_url': _cover(image), 'source': '无名图书',
     }
 
@@ -86,25 +97,46 @@ def lookup_cp(isbn):
         'g_fw': '0', 'g_isbn': formatted, 'g_sm': '', 'g_zz': '',
     })
     search_page = fetch_html(search_url) or ''
-    paths = re.findall(r'<h2>\s*<a\s+href="(/book/[a-zA-Z0-9-]+\.html)"', search_page)
-    for path in paths[:3]:
+    for path in cp_book_paths(search_page)[:3]:
         page = fetch_html('https://www.cp.com.cn' + path) or ''
-        found_isbn = re.search(r'ISBN[：:]\s*([0-9Xx\- ]{10,20})', page)
-        if not found_isbn or not _same_isbn(found_isbn.group(1), isbn):
-            continue
-        title_match = re.search(r'<title>\s*([^<]+)\s*</title>', page, re.I)
-        if not title_match or not title_match.group(1).strip():
-            continue
-        date_match = re.search(r'出版时间[：:]\s*([12]\d{3})', page)
-        cover_match = re.search(r'<div class="book_pic">.*?<img\s+src="([^"]+)"', page, re.S)
-        return {
-            'title': unescape(title_match.group(1)).strip(), 'author': '',
-            'publisher': '商务印书馆',
-            'published_year': int(date_match.group(1)) if date_match else None,
-            'cover_url': _cover(cover_match.group(1)) if cover_match else '',
-            'source': '商务印书馆',
-        }
+        entry = cp_book_detail(page)
+        if entry and entry[0] == isbn:
+            return entry[1]
     return None
+
+
+def cp_book_paths(page):
+    paths = re.findall(r'<h2\b[^>]*>\s*<a\s+href="(/book/[a-zA-Z0-9_-]+\.html)"', page)
+    return list(dict.fromkeys(paths))
+
+
+def cp_book_detail(page):
+    isbns = set()
+    for value in re.findall(r'<li\b[^>]*>\s*ISBN[：:]\s*([0-9Xx\- ]{10,20})', page):
+        try:
+            isbns.add(normalize_isbn(value))
+        except ValueError:
+            continue
+    title = re.search(r'<title>\s*([^<]+)\s*</title>', page, re.I)
+    if len(isbns) != 1 or not title or not title.group(1).strip():
+        return None
+    isbn = isbns.pop()
+    if not isbn.startswith('9787100'):
+        return None
+    date = re.search(r'出版时间[：:]\s*([12]\d{3})', page)
+    cover = re.search(r'<div class="book_pic">.*?<img\s+src="([^"]+)"', page, re.S)
+    author_block = re.search(r'<li class="zuozhe">\s*(?:著者|作者|编者|主编)[：:](.*?)</li>',
+                             page, re.S)
+    names = re.search(r"zith2\('([^']+)'\)", author_block[1]) if author_block else None
+    author = '、'.join(_plain(name) for name in re.findall(r'\|([^|]+)\|\d+,', names[1])) if names else ''
+    return isbn, {
+        'title': unescape(title.group(1)).strip(),
+        'author': author,
+        'publisher': '商务印书馆',
+        'published_year': int(date.group(1)) if date else None,
+        'cover_url': _cover(cover.group(1)) if cover else '',
+        'source': '商务印书馆',
+    }
 
 
 def lookup_douban(isbn):
@@ -244,20 +276,20 @@ def lookup_juhe(isbn):
     }
 
 
-def lookup_book(isbn):
+def lookup_book(isbn, *, domestic_metadata_only=False):
     periodical = lookup_periodical(isbn)
     if periodical:
         return periodical
     domestic = (lookup_wuming, lookup_neodb, lookup_cp, lookup_douban, lookup_cdclib,
                 lookup_showapi, lookup_juhe)
-    international = (lookup_google, lookup_openlibrary)
+    international = () if domestic_metadata_only else (lookup_google, lookup_openlibrary)
     for provider in domestic + international:
         result = provider(isbn)
         if result and result.get('title'):
             break
     else:
         result = None
-    if result and result.get('cover_url'):
+    if domestic_metadata_only or (result and result.get('cover_url')):
         return result
     for image, source, entry in library_cover_candidates(isbn):
         title = _names(entry.get('title'))
@@ -335,6 +367,8 @@ def lookup_openlibrary(isbn):
 
 
 def _same_isbn(value, target):
+    if not isinstance(value, str):
+        return False
     try:
         return normalize_isbn(value) == target
     except ValueError:

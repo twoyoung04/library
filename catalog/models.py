@@ -27,9 +27,38 @@ class PublicEdition(models.Model):
     cover_url = models.URLField('封面链接', max_length=1000, blank=True)
     source = models.CharField('书目来源', max_length=100)
     created_at = models.DateTimeField('收录时间', auto_now_add=True)
+    collected_fields = models.JSONField('采集字段来源', default=dict, blank=True, editable=False)
 
     def __str__(self):
         return self.title
+
+
+class BibliographyImport(models.Model):
+    snapshot = models.CharField('快照', max_length=100, unique=True)
+    offset = models.PositiveBigIntegerField('读取位置', default=0)
+    counts = models.JSONField('导入统计', default=dict, blank=True)
+    updated_at = models.DateTimeField('最后进度', auto_now=True)
+    completed_at = models.DateTimeField('完成时间', null=True, blank=True)
+
+
+class BibliographyConflict(models.Model):
+    public_edition = models.ForeignKey(PublicEdition, on_delete=models.CASCADE)
+    source = models.CharField('来源', max_length=100)
+    source_key = models.CharField('来源记录编号', max_length=100)
+    snapshot = models.CharField('快照', max_length=100)
+    candidate = models.JSONField('待复核书目')
+    updated_at = models.DateTimeField('最后发现时间', auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['public_edition', 'source', 'source_key'],
+                                    name='unique_bibliography_conflict'),
+        ]
+
+
+class BibliographyLookup(models.Model):
+    isbn = models.CharField('ISBN-13', max_length=13, primary_key=True)
+    retry_after = models.DateTimeField('下次可查询时间')
 
 
 class Edition(models.Model):

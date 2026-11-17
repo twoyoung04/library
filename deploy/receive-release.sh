@@ -71,5 +71,8 @@ if ! "${compose[@]}" up -d --no-build --force-recreate web nginx covers || ! smo
     fi
     exit 1
 fi
+if "${compose[@]}" --profile bibliography ps --status running --services | grep -Fxq bibliography; then
+    "${compose[@]}" --profile bibliography up -d --no-deps --no-build bibliography
+fi
 printf '%s\n' "$revision" > .deployed-revision
 printf 'Deployed %s\n' "$revision"

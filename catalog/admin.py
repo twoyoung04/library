@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Copy, Edition, Tag
+from .models import BibliographyConflict, BibliographyImport, Copy, Edition, Tag
 
 
 class CopyInline(admin.TabularInline):
@@ -39,3 +39,31 @@ class EditionAdmin(LibraryOwnerAdmin):
 @admin.register(Tag)
 class TagAdmin(LibraryOwnerAdmin):
     list_display = ['name', 'owner']
+
+
+class BibliographyReviewAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(BibliographyImport)
+class BibliographyImportAdmin(BibliographyReviewAdmin):
+    list_display = ['snapshot', 'updated_at', 'completed_at', 'counts']
+    ordering = ['-updated_at']
+
+
+@admin.register(BibliographyConflict)
+class BibliographyConflictAdmin(BibliographyReviewAdmin):
+    list_display = ['isbn', 'source', 'source_key', 'updated_at']
+    search_fields = ['public_edition__isbn', 'public_edition__title', 'source']
+    ordering = ['-updated_at']
+
+    @admin.display(description='ISBN')
+    def isbn(self, conflict):
+        return conflict.public_edition.isbn
