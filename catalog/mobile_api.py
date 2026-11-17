@@ -124,10 +124,17 @@ def login(request):
         cache.set(throttle_key, failures + 1, 15 * 60)
         return failure('用户名或密码错误。', 401)
     cache.delete(throttle_key)
+    return issue_session(user)
+
+
+def issue_session(user):
     raw = secrets.token_urlsafe(48)
     expires = timezone.now() + timedelta(days=90)
     MobileToken.objects.create(user=user, digest=token_digest(raw), expires_at=expires)
-    return JsonResponse({'token': raw, 'expires_at': expires.isoformat(), 'username': user.get_username()})
+    return JsonResponse({
+        'token': raw, 'expires_at': expires.isoformat(), 'username': user.get_username(),
+        'copy_count': Copy.objects.filter(edition__owner=user).count(),
+    })
 
 
 @mobile_endpoint({'POST'})

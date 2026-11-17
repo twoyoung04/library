@@ -10,6 +10,7 @@ erDiagram
     USER ||..o{ TAG : "拥有"
     EDITION ||..o{ EDITION_TAG : "使用标签"
     TAG ||..o{ EDITION_TAG : "标记图书"
+    USER ||..o{ LOGIN_IDENTITY : "绑定登录方式"
     USER ||..o{ MOBILE_TOKEN : "登录授权"
     USER ||..o{ MOBILE_SAVE_REQUEST : "提交录入"
     COPY |o..o{ MOBILE_SAVE_REQUEST : "录入结果"
@@ -61,6 +62,24 @@ erDiagram
         bigint id PK
         bigint edition_id FK
         bigint tag_id FK "与 edition_id 联合唯一"
+    }
+    LOGIN_IDENTITY {
+        bigint id PK
+        int user_id FK
+        string provider "与 user_id 联合唯一"
+        string subject "与 provider 联合唯一"
+        text encrypted_refresh_token
+    }
+    EMAIL_LOGIN_CHALLENGE {
+        string key PK "邮箱哈希"
+        string digest "验证码摘要"
+        datetime sent_at
+        int attempts
+    }
+    AUTH_RATE_WINDOW {
+        string key PK
+        datetime started_at
+        int count
     }
     MOBILE_TOKEN {
         bigint id PK

@@ -186,3 +186,10 @@ Pull Request 构建应用和 Nginx 镜像，并运行 Django 测试与迁移检�
 服务器 `/opt/library/deploy/receive-release.sh` 是专用 SSH 密钥的入口。仓库使用 `LIBRARY_DEPLOY_KEY`、`LIBRARY_DEPLOY_KNOWN_HOSTS` 和 `LIBRARY_DEPLOY_TARGET` 三个 Actions Secrets。更新入口脚本时通过服务器管理 SSH 安装新版。
 
 每次发布保存数据库备份、执行所需迁移并检查登录页和扫码资源。发布串行执行。无数据库迁移的发布在检查失败时恢复上一版镜像和配置。执行迁移后如检查失败，结合备份和迁移记录决定回退方式。服务器 `.deployed-revision` 保存最后一次成功发布的提交。
+
+### iOS 邮箱和 Apple 登录
+
+- 邮箱验证码使用 SMTP。填入 `LIBRARY_SMTP_*` 和 `LIBRARY_EMAIL_FROM` 后再启用 `MOBILE_EMAIL_ENABLED=1`。587 使用 STARTTLS，465 需要设置 `LIBRARY_SMTP_SSL=1`。验证生产域名发信与常用邮箱的送达。若计划向 Apple 隐藏邮箱发信，先在 Apple Developer 注册发信域名并配置 SPF、DKIM。
+- 在 Apple Developer 为 iOS App ID 启用 Sign in with Apple，更新签名描述文件，创建该能力使用的密钥。填写 `LIBRARY_APPLE_CLIENT_ID`（本项目为 `site.wuminglib.mylibrary`）、Team ID、Key ID 和私钥。私钥以单行保存，换行用字面量 `\n` 表示。Apple 刷新令牌使用 Django 密钥加密，轮换密钥时应配置逗号分隔的 `DJANGO_SECRET_KEY_FALLBACKS` 供历史令牌解密。
+- 数据库迁移 `0013` 只新增身份与验证表。旧账号先用原用户名和密码登录，再绑定新方式，书库无需迁移。新版注册方式目前面向 iOS，网页继续使用原登录入口。
+- 在两部设备上验证新账号、旧账号绑定、不提供邮箱的 Apple 登录、登出后恢复、注销和 Apple 撤销。邮件服务和 Apple 配置缺省时，iOS 继续提供旧账号登录。注销删除在线账号、书库和会话。加密备份的保留期与恢复后重放注销需要在公开上线前确定。

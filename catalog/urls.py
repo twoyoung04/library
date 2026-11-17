@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import mobile_api, views
+from . import mobile_accounts, mobile_api, views
 
 urlpatterns = [
     path('', views.book_list, name='book_list'),
@@ -19,6 +19,16 @@ urlpatterns = [
     path('api/mobile/metadata/', mobile_api.public_book_metadata),
     path('api/mobile/snapshot/', mobile_api.library_snapshot),
     path('api/mobile/login/', mobile_api.login),
+    path('api/mobile/account/capabilities/', mobile_accounts.capabilities),
+    path('api/mobile/account/email/send/', mobile_accounts.send_code),
+    path('api/mobile/account/email/login/', mobile_accounts.email_login),
+    path('api/mobile/account/email/bind/', mobile_accounts.email_bind),
+    path('api/mobile/account/apple/challenge/', mobile_accounts.apple_challenge),
+    path('api/mobile/account/apple/login/', mobile_accounts.apple_sign_in),
+    path('api/mobile/account/apple/bind-challenge/', mobile_accounts.apple_bind_challenge),
+    path('api/mobile/account/apple/bind/', mobile_accounts.apple_bind),
+    path('api/mobile/account/identities/', mobile_accounts.identities),
+    path('api/mobile/account/delete/', mobile_accounts.delete_account),
     path('api/mobile/logout/', mobile_api.logout),
     path('api/mobile/me/', mobile_api.me),
     path('api/mobile/books/', mobile_api.books),

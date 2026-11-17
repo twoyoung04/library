@@ -24,6 +24,7 @@ if not SECRET_KEY:
         key_file.write_text(secrets.token_urlsafe(48))
         key_file.chmod(0o600)
     SECRET_KEY = key_file.read_text().strip()
+SECRET_KEY_FALLBACKS = [key for key in os.environ.get('DJANGO_SECRET_KEY_FALLBACKS', '').split(',') if key]
 DEBUG = not IS_PRODUCTION and os.environ.get('DJANGO_DEBUG', '1') == '1'
 ALLOWED_HOSTS = [v.strip() for v in os.environ.get(
     'DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if v.strip()]
@@ -111,3 +112,18 @@ COS_SECRET_KEY = os.environ.get('COS_SECRET_KEY', '')
 
 COS_PUBLIC_BASE_URL = os.environ.get('COS_PUBLIC_BASE_URL') or (
     f'https://{COS_BUCKET}.cos.{COS_REGION}.myqcloud.com')
+
+MOBILE_EMAIL_ENABLED = os.environ.get('MOBILE_EMAIL_ENABLED') == '1'
+EMAIL_HOST = os.environ.get('LIBRARY_SMTP_HOST', 'localhost')
+EMAIL_PORT = int(os.environ.get('LIBRARY_SMTP_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('LIBRARY_SMTP_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('LIBRARY_SMTP_PASSWORD', '')
+EMAIL_USE_SSL = os.environ.get('LIBRARY_SMTP_SSL') == '1'
+EMAIL_USE_TLS = not EMAIL_USE_SSL
+EMAIL_TIMEOUT = 8
+DEFAULT_FROM_EMAIL = os.environ.get('LIBRARY_EMAIL_FROM', 'accounts@wuminglib.site')
+
+APPLE_CLIENT_ID = os.environ.get('LIBRARY_APPLE_CLIENT_ID', 'site.wuminglib.mylibrary')
+APPLE_TEAM_ID = os.environ.get('LIBRARY_APPLE_TEAM_ID', '')
+APPLE_KEY_ID = os.environ.get('LIBRARY_APPLE_KEY_ID', '')
+APPLE_PRIVATE_KEY = os.environ.get('LIBRARY_APPLE_PRIVATE_KEY', '').replace('\\n', '\n')

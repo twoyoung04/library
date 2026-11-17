@@ -153,3 +153,33 @@ class MobileSaveRequest(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['user', 'request_id'], name='unique_mobile_save_request')]
+
+
+class LoginIdentity(models.Model):
+    class Provider(models.TextChoices):
+        EMAIL = 'email', '邮箱'
+        APPLE = 'apple', 'Apple'
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    provider = models.CharField(max_length=12, choices=Provider.choices)
+    subject = models.CharField(max_length=254)
+    encrypted_refresh_token = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['provider', 'subject'], name='unique_login_identity'),
+            models.UniqueConstraint(fields=['user', 'provider'], name='one_identity_per_provider'),
+        ]
+
+
+class EmailLoginChallenge(models.Model):
+    key = models.CharField(max_length=64, primary_key=True)
+    digest = models.CharField(max_length=64, blank=True)
+    sent_at = models.DateTimeField(null=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+
+class AuthRateWindow(models.Model):
+    key = models.CharField(max_length=64, primary_key=True)
+    started_at = models.DateTimeField()
+    count = models.PositiveSmallIntegerField(default=0)
