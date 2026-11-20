@@ -54,6 +54,8 @@ services:
       LIBRARY_APPLE_PRIVATE_KEY: ${LIBRARY_APPLE_PRIVATE_KEY:-}
       LIBRARY_SMTP_PORT: ${LIBRARY_SMTP_PORT:-587}
       LIBRARY_APPLE_CLIENT_ID: ${LIBRARY_APPLE_CLIENT_ID:-site.wuminglib.mylibrary}
+      LIBRARY_SUPPORT_EMAIL: ${LIBRARY_SUPPORT_EMAIL:-}
+      LIBRARY_OPERATOR_NAME: ${LIBRARY_OPERATOR_NAME:-}
     depends_on:
       db:
         condition: service_healthy

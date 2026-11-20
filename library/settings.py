@@ -127,3 +127,7 @@ APPLE_CLIENT_ID = os.environ.get('LIBRARY_APPLE_CLIENT_ID', 'site.wuminglib.myli
 APPLE_TEAM_ID = os.environ.get('LIBRARY_APPLE_TEAM_ID', '')
 APPLE_KEY_ID = os.environ.get('LIBRARY_APPLE_KEY_ID', '')
 APPLE_PRIVATE_KEY = os.environ.get('LIBRARY_APPLE_PRIVATE_KEY', '').replace('\\n', '\n')
+
+# Public release contact information. Never infer personal details from Git metadata.
+LIBRARY_SUPPORT_EMAIL = os.environ.get('LIBRARY_SUPPORT_EMAIL', '').strip()
+LIBRARY_OPERATOR_NAME = os.environ.get('LIBRARY_OPERATOR_NAME', '').strip()
