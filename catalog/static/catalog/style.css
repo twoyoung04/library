@@ -109,3 +109,10 @@
 /* Shared library mark: preserve the square silhouette at every size. */
 .brand-mark{display:block;width:36px;height:36px;flex-shrink:0;border-radius:9px}
 img.login-icon{display:block;width:64px;height:64px;padding:0;object-fit:contain;border-radius:16px}
+
+/* Keep the filing link visible below the shelf and above mobile navigation. */
+.site-footer{flex:none;padding-top:8px;text-align:center;color:#617267;font-size:12px;line-height:1.5}
+.site-footer a{display:inline-flex;align-items:center;min-height:32px}
+.site-footer a:hover,.site-footer a:focus-visible{text-decoration:underline;text-underline-offset:3px}
+.login-body{min-height:100dvh;grid-template-rows:1fr auto;gap:20px;padding-bottom:max(20px,env(safe-area-inset-bottom))}
+@media(max-height:640px){.login-body{gap:12px}.login-card{padding:24px}.login-card .muted{margin-bottom:18px}}

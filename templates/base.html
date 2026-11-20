@@ -10,7 +10,7 @@
   <link rel="icon" type="image/png" sizes="64x64" href="{% static 'catalog/favicon.png' %}?v=20261120-shuyu">
   <link rel="apple-touch-icon" sizes="180x180" href="{% static 'catalog/apple-touch-icon.png' %}?v=20261120-shuyu">
   <meta name="apple-mobile-web-app-title" content="我的藏书">
-  <link rel="stylesheet" href="{% static 'catalog/style.css' %}?v=20261105-library-logo" data-turbo-track="reload">
+  <link rel="stylesheet" href="{% static 'catalog/style.css' %}?v=20261120-icp-footer" data-turbo-track="reload">
   <script src="{% static 'catalog/navigation.bundle.js' %}?v=20261001-smooth-shelf" defer data-turbo-track="reload"></script>
   {% block head %}{% endblock %}
 </head>
@@ -29,6 +29,7 @@
     <main class="main-content">
       {% if messages %}<div class="messages" role="status">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
       {% block content %}{% endblock %}
+      {% include '_icp_footer.html' %}
     </main>
   </div>
   <nav class="mobile-nav" aria-label="移动导航">
